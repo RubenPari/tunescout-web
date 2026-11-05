@@ -41,17 +41,17 @@ export default function Discover() {
   const unsaved = tracks.filter((t) => feedback[t.key] !== 'like')
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-bold">Scopri</h1>
-        <p className="mt-1 text-zinc-400">
-          Claude propone brani in base al tuo profilo; quelli che non esistono su Spotify, che hai già o che ti sono già
-          stati suggeriti vengono scartati.
+        <h1 className="display text-[clamp(2.25rem,7vw,3.25rem)]">Scopri</h1>
+        <p className="mt-2 max-w-[62ch] text-dim">
+          Claude propone brani in base al tuo profilo. Quelli che non esistono su Spotify, che hai già o che ti sono
+          già stati suggeriti vengono scartati.
         </p>
       </header>
 
       <form
-        className="card grid gap-4 p-5 sm:grid-cols-[8rem_1fr]"
+        className="panel grid gap-5 p-5 sm:grid-cols-[8rem_1fr] sm:p-6"
         onSubmit={(e) => {
           e.preventDefault()
           submit()
@@ -73,20 +73,20 @@ export default function Discover() {
         </div>
         <div>
           <label className="label" htmlFor="mood">
-            Mood (facoltativo)
+            Mood, se vuoi
           </label>
           <input
             id="mood"
             className="input"
             maxLength={200}
-            placeholder="es. notturno, malinconico · energico · per studiare"
+            placeholder="es. notturno e malinconico, oppure per studiare"
             value={form.mood}
             onChange={(e) => setForm({ ...form, mood: e.target.value })}
           />
         </div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="genres">
-            Generi (facoltativi, Invio per aggiungere)
+            Generi, se vuoi (premi Invio per aggiungerne uno)
           </label>
           <TagInput
             id="genres"
@@ -96,10 +96,10 @@ export default function Discover() {
           />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-4 sm:col-span-2">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
+          <label className="flex cursor-pointer items-center gap-2.5 text-[15px]">
             <input
               type="checkbox"
-              className="h-4 w-4 accent-emerald-500"
+              className="h-4 w-4 accent-[#f2a93b]"
               checked={form.newArtists}
               onChange={(e) => setForm({ ...form, newArtists: e.target.checked })}
             />
@@ -117,14 +117,16 @@ export default function Discover() {
       {result && (
         <section className="space-y-4">
           {tracks.length === 0 ? (
-            <p className="text-zinc-400">Nessun brano nuovo trovato: prova con meno vincoli o riprova.</p>
+            <p className="text-dim">
+              Nessun brano nuovo trovato. Togli qualche genere o il mood e cerca di nuovo.
+            </p>
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="mr-auto text-lg font-semibold">
+                <h2 className="display mr-auto text-2xl tabular-nums">
                   {tracks.length} {tracks.length === 1 ? 'brano' : 'brani'}
                   {tracks.length < result.requested && (
-                    <span className="ml-2 text-sm font-normal text-zinc-500">su {result.requested} richiesti</span>
+                    <span className="ml-2 text-base font-normal tracking-normal text-dim [font-stretch:100%]">su {result.requested} richiesti</span>
                   )}
                 </h2>
                 <button className="btn-ghost" disabled={unsaved.length === 0} onClick={() => send(unsaved, 'like')}>
@@ -132,12 +134,12 @@ export default function Discover() {
                 </button>
                 <PlaylistButton
                   uris={tracks.map((t) => t.uri)}
-                  defaultName="tunescout · scoperte"
+                  defaultName="Scoperte di tunescout"
                   description="Suggerimenti generati da tunescout"
                 />
               </div>
               <ErrorBox error={actionError} />
-              <ul className="space-y-3">
+              <ul className="-mx-3 divide-y divide-line/60">
                 {tracks.map((t) => (
                   <TrackCard
                     key={t.key}
@@ -147,8 +149,8 @@ export default function Discover() {
                   />
                 ))}
               </ul>
-              <p className="text-xs text-zinc-500">
-                Like e Scarta vengono usati come segnale per i suggerimenti successivi.
+              <p className="text-sm text-dim">
+                Mi piace e Scarta orientano i suggerimenti successivi. Mi piace salva anche il brano nella tua libreria.
               </p>
             </>
           )}
@@ -173,14 +175,14 @@ function Actions({
   return (
     <>
       <button
-        className={state === 'like' ? 'btn bg-emerald-500/20 px-3 py-1 text-emerald-300' : 'btn-ghost px-3 py-1'}
+        className={state === 'like' ? 'btn bg-dial-soft px-3 py-1 text-dial' : 'btn-ghost px-3 py-1'}
         disabled={pending || state === 'like'}
         onClick={onLike}
       >
-        {state === 'like' ? '♥ Salvato' : '♡ Mi piace'}
+        {state === 'like' ? 'Salvato in libreria' : 'Mi piace'}
       </button>
       <button
-        className={state === 'skip' ? 'btn bg-zinc-800 px-3 py-1 text-zinc-400' : 'btn-ghost px-3 py-1'}
+        className={state === 'skip' ? 'btn bg-panel px-3 py-1 text-dim' : 'btn-ghost px-3 py-1'}
         disabled={pending || state === 'skip'}
         onClick={onSkip}
       >

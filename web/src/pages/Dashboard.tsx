@@ -27,57 +27,67 @@ export default function Dashboard({ me }: { me: Me }) {
     }
   }
 
-  return (
-    <div className="space-y-8">
-      <section>
-        <h1 className="text-2xl font-bold">Ciao, {me.user.displayName}</h1>
-        <p className="mt-1 text-zinc-400">
-          {library.lastSync
-            ? `Libreria sincronizzata il ${fmt.format(new Date(library.lastSync))}.`
-            : 'Sincronizza la libreria per iniziare: tunescout legge i brani salvati, i tuoi top artisti e brani e le tue playlist.'}
-        </p>
-      </section>
+  const n = (v: number) => v.toLocaleString('it-IT')
+  const usageText = usage.limit
+    ? `Oggi hai usato ${usage.today} ricerche su ${usage.limit}.`
+    : `Oggi hai fatto ${usage.today} ${usage.today === 1 ? 'ricerca' : 'ricerche'}.`
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Brani noti" value={library.tracks.toLocaleString('it-IT')} />
-        <Stat label="Artisti" value={library.artists.toLocaleString('it-IT')} />
-        <Stat
-          label="Ricerche oggi"
-          value={usage.limit ? `${usage.today} / ${usage.limit}` : String(usage.today)}
-          hint="discover e prune"
-        />
+  return (
+    <div className="space-y-12">
+      <section>
+        <p className="text-dim">Ciao, {me.user.displayName}</p>
+        {library.lastSync ? (
+          <>
+            <h1 className="display mt-2 max-w-[22ch] text-[clamp(2rem,6vw,2.75rem)] tabular-nums">
+              Nella tua libreria ci sono {n(library.tracks)} brani di {n(library.artists)} artisti.
+            </h1>
+            <p className="mt-3 text-dim">
+              Sincronizzata il {fmt.format(new Date(library.lastSync))}. {usageText}
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="display mt-2 max-w-[22ch] text-[clamp(2rem,6vw,2.75rem)]">
+              Sincronizza la libreria per iniziare.
+            </h1>
+            <p className="mt-3 max-w-[60ch] text-dim">
+              tunescout legge i brani salvati, i tuoi artisti e brani più ascoltati e le tue playlist, così non ti
+              propone musica che conosci già.
+            </p>
+          </>
+        )}
       </section>
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <button className="btn-primary" disabled={busy} onClick={() => sync.start()}>
             {sync.running ? 'Sincronizzo…' : library.lastSync ? 'Aggiorna libreria' : 'Sincronizza libreria'}
           </button>
-          <span className="text-sm text-zinc-500">
-            Avviene in automatico prima di Scopri e Fai pulizia se l'ultima sincronizzazione ha più di 24 ore.
+          <span className="max-w-[56ch] text-sm text-dim">
+            Scopri e Fai pulizia la aggiornano da soli se l'ultima sincronizzazione ha più di 24 ore.
           </span>
         </div>
         <ErrorBox error={sync.error} />
         <JobLog logs={sync.logs} running={sync.running} />
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2">
-        <Link to="/discover" className="card block p-6 transition hover:border-emerald-700">
-          <h2 className="text-lg font-semibold">Scopri musica nuova →</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Chiedi a Claude brani adatti a te, con mood e generi. Ogni proposta è verificata su Spotify.
-          </p>
-        </Link>
-        <Link to="/prune" className="card block p-6 transition hover:border-emerald-700">
-          <h2 className="text-lg font-semibold">Fai pulizia →</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Trova i brani salvati che ascolti poco e che sono lontani dai tuoi gusti.
-          </p>
-        </Link>
+      <section className="grid gap-x-10 gap-y-8 border-t border-line pt-8 sm:grid-cols-2">
+        <Action
+          to="/discover"
+          title="Scopri musica nuova"
+          text="Chiedi a Claude brani adatti a te, anche per mood e generi. Ogni proposta viene cercata su Spotify."
+          cta="Trova brani"
+        />
+        <Action
+          to="/prune"
+          title="Fai pulizia"
+          text="Trova i brani salvati che ascolti poco e che sono lontani dai tuoi gusti."
+          cta="Analizza la libreria"
+        />
       </section>
 
-      <section className="border-t border-zinc-800 pt-6 text-sm text-zinc-500">
-        <button className="text-rose-400 hover:text-rose-300" onClick={() => setConfirmDelete(true)}>
+      <section className="border-t border-line pt-6 text-sm">
+        <button className="text-alarm hover:underline" onClick={() => setConfirmDelete(true)}>
           Elimina il mio account
         </button>
       </section>
@@ -85,7 +95,7 @@ export default function Dashboard({ me }: { me: Me }) {
       <ConfirmDialog
         open={confirmDelete}
         title="Eliminare l'account?"
-        confirmLabel={deleting ? 'Elimino…' : 'Elimina'}
+        confirmLabel={deleting ? 'Elimino…' : 'Elimina account'}
         danger
         busy={deleting}
         onConfirm={deleteAccount}
@@ -98,12 +108,14 @@ export default function Dashboard({ me }: { me: Me }) {
   )
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Action({ to, title, text, cta }: { to: string; title: string; text: string; cta: string }) {
   return (
-    <div className="card p-5">
-      <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="mt-1 text-3xl font-bold">{value}</div>
-      {hint && <div className="mt-1 text-xs text-zinc-500">{hint}</div>}
+    <div>
+      <h2 className="display text-2xl">{title}</h2>
+      <p className="mt-2 max-w-[44ch] text-[15px] text-dim">{text}</p>
+      <Link to={to} className="btn-ghost mt-4">
+        {cta}
+      </Link>
     </div>
   )
 }

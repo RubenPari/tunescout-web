@@ -56,18 +56,19 @@ export default function Prune() {
   const allSelected = items.length > 0 && items.every((i) => selected.has(i.uri))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-bold">Fai pulizia</h1>
-        <p className="mt-1 text-zinc-400">
-          Spotify non espone il numero di ascolti: un brano è considerato "poco ascoltato" se è salvato da almeno N
-          giorni, non è tra i tuoi top brani e nessuno dei suoi artisti è tra i 50 che ascolti di più. Tra questi, Claude
-          sceglie quelli meno in linea con il tuo profilo. Nulla viene rimosso senza conferma.
+        <h1 className="display text-[clamp(2.25rem,7vw,3.25rem)]">Fai pulizia</h1>
+        <p className="mt-2 max-w-[62ch] text-dim">
+          Spotify non dice quante volte hai ascoltato un brano. Per questo un brano conta come poco ascoltato se è
+          salvato da un certo numero di giorni, non è tra i tuoi brani più ascoltati e nessuno dei suoi artisti è tra i
+          50 che ascolti di più. Tra questi, Claude sceglie quelli più lontani dai tuoi gusti.
         </p>
+        <p className="mt-2 text-dim">Nulla viene rimosso senza la tua conferma.</p>
       </header>
 
       <form
-        className="card flex flex-wrap items-end gap-4 p-5"
+        className="panel flex flex-wrap items-end gap-5 p-5 sm:p-6"
         onSubmit={(e) => {
           e.preventDefault()
           submit()
@@ -87,9 +88,9 @@ export default function Prune() {
             onChange={(e) => setForm({ ...form, count: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })}
           />
         </div>
-        <div className="w-48">
+        <div className="w-52">
           <label className="label" htmlFor="minage">
-            Salvati da almeno (giorni)
+            Salvati da almeno, in giorni
           </label>
           <input
             id="minage"
@@ -112,25 +113,26 @@ export default function Prune() {
       {result && (
         <section className="space-y-4">
           {removed.size > 0 && (
-            <div className="rounded-xl border border-emerald-900 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
-              ✓ {removed.size} {removed.size === 1 ? 'brano rimosso' : 'brani rimossi'} dalla libreria. Non verranno più
-              proposti da Scopri.
+            <div role="status" className="rounded-lg border-l-[3px] border-dial bg-dial-soft px-4 py-3 text-[15px]">
+              {removed.size === 1 ? 'Rimosso 1 brano' : `Rimossi ${removed.size} brani`} dalla libreria. Scopri non li
+              proporrà più.
             </div>
           )}
           {items.length === 0 ? (
             removed.size === 0 && (
-              <p className="text-zinc-400">
-                Nessun brano da eliminare: la tua libreria è in linea con i tuoi gusti
-                {result.stats.candidates === 0 && ' (nessun brano poco ascoltato con questi criteri)'}.
+              <p className="max-w-[62ch] text-dim">
+                {result.stats.candidates === 0
+                  ? 'Nessun brano poco ascoltato con questi criteri. Prova a ridurre i giorni minimi.'
+                  : 'Nessun brano da eliminare: la tua libreria è in linea con i tuoi gusti.'}
               </p>
             )
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="mr-auto flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
+                <label className="mr-auto flex cursor-pointer items-center gap-2.5 text-[15px]">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 accent-emerald-500"
+                    className="h-4 w-4 accent-[#ef6b5b]"
                     checked={allSelected}
                     onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.uri)))}
                   />
@@ -138,7 +140,7 @@ export default function Prune() {
                 </label>
                 <PlaylistButton
                   uris={selected.size ? [...selected] : items.map((i) => i.uri)}
-                  defaultName="tunescout · da eliminare"
+                  defaultName="Da eliminare (tunescout)"
                   description="Brani da valutare per l'eliminazione, scelti da tunescout"
                   label={selected.size ? `Playlist di backup (${selected.size})` : 'Playlist di backup'}
                 />
@@ -146,21 +148,22 @@ export default function Prune() {
                   Rimuovi selezionati ({selected.size})
                 </button>
               </div>
-              <p className="text-xs text-zinc-500">
-                {result.stats.saved} brani salvati · {result.stats.candidates} poco ascoltati
+              <p className="text-sm tabular-nums text-dim">
+                Su {result.stats.saved} brani salvati, {result.stats.candidates} sono poco ascoltati.
               </p>
               <ErrorBox error={actionError} />
-              <ul className="space-y-3">
+              <ul className="-mx-3 space-y-1">
                 {items.map((t) => (
                   <TrackCard
                     key={t.uri}
                     track={t}
+                    selected={selected.has(t.uri)}
                     note={`Salvato il ${dateFmt.format(new Date(t.addedAt))}`}
                     leading={
                       <input
                         type="checkbox"
                         aria-label={`Seleziona ${t.title}`}
-                        className="mt-1 h-5 w-5 shrink-0 accent-rose-500"
+                        className="mt-1 h-5 w-5 shrink-0 accent-[#ef6b5b]"
                         checked={selected.has(t.uri)}
                         onChange={() => toggle(t.uri)}
                       />

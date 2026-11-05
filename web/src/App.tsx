@@ -30,7 +30,7 @@ export default function App() {
   if (me.isError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center">
-        <p className="text-zinc-300">Impossibile contattare il server: {me.error.message}</p>
+        <p className="max-w-[48ch] text-fg">Il server non risponde ({me.error.message}). Controlla la connessione e riprova.</p>
         <button className="btn-ghost" onClick={() => me.refetch()}>
           Riprova
         </button>
