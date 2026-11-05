@@ -1,9 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet } from 'react-router'
 import { api, type Me } from '../api'
+import Dial, { type Station } from './Dial'
 import Logo from './Logo'
 
-const links = [
+const stations: Station[] = [
   { to: '/', label: 'Libreria', end: true },
   { to: '/discover', label: 'Scopri' },
   { to: '/prune', label: 'Fai pulizia' },
@@ -20,37 +21,26 @@ export default function Layout({ me }: { me: Me }) {
   }
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/85 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <NavLink to="/" className="flex items-center gap-2 font-bold">
-            <Logo />
-            tunescout
-          </NavLink>
-          <nav className="order-3 flex w-full gap-1 overflow-x-auto sm:order-none sm:w-auto">
-            {links.map((l) => (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.end}
-                className={({ isActive }) =>
-                  `whitespace-nowrap rounded-full px-3 py-1.5 text-sm transition ${
-                    isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-white'
-                  }`
-                }
-              >
-                {l.label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="hidden text-zinc-400 sm:inline">{me.user.displayName}</span>
-            <button className="text-zinc-400 hover:text-white" onClick={logout}>
-              Esci
-            </button>
+      <header className="sticky top-0 z-10 bg-night/90 backdrop-blur">
+        <div className="mx-auto max-w-4xl px-4 pt-4">
+          <div className="flex items-center gap-3">
+            <NavLink to="/" className="flex items-center gap-2.5 rounded-md">
+              <Logo />
+              <span className="display text-xl">tunescout</span>
+            </NavLink>
+            <div className="ml-auto flex items-center gap-4 text-sm">
+              <span className="hidden text-dim sm:inline">{me.user.displayName}</span>
+              <button className="text-dim transition-colors hover:text-fg" onClick={logout}>
+                Esci
+              </button>
+            </div>
+          </div>
+          <div className="mt-3">
+            <Dial stations={stations} scanning={me.activeJob?.status === 'running'} />
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl px-4 py-8">
+      <main className="mx-auto max-w-4xl px-4 pb-16 pt-10">
         <Outlet />
       </main>
     </div>
