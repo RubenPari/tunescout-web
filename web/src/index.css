@@ -1,34 +1,137 @@
 @import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque/standard.css";
 
+/*
+ * tunescout: "sintonizzarsi". Una radio di notte: fondo indaco, la luce
+ * ambra della manopola come unico accento. L'elemento distintivo è la
+ * scala di sintonia (components/Dial.tsx); tutto il resto resta sobrio.
+ */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-night: #14162b; /* fondo */
+  --color-panel: #1d2040; /* superfici */
+  --color-line: #2e3260; /* bordi, tacche */
+  --color-fg: #e8e6f4; /* testo */
+  --color-dim: #9597be; /* testo secondario */
+  --color-dial: #f2a93b; /* accento: azioni primarie, ago, focus */
+  --color-dial-soft: #f2a93b26;
+  --color-alarm: #ef6b5b; /* azioni distruttive */
+  --color-alarm-soft: #ef6b5b1f;
 }
 
 :root {
   color-scheme: dark;
+  background: var(--color-night);
+}
+
+body {
+  font-size: 1rem;
+  line-height: 1.55;
+  font-optical-sizing: auto;
+}
+
+::selection {
+  background: var(--color-dial);
+  color: var(--color-night);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-dial);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Titoli: optical size alto, larghezza ridotta. */
+@utility display {
+  font-weight: 760;
+  font-stretch: 80%;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  text-wrap: balance;
 }
 
 @utility btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition
-    disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2
-    focus-visible:outline-emerald-400;
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors
+    disabled:cursor-not-allowed disabled:opacity-45;
 }
 @utility btn-primary {
-  @apply btn bg-emerald-500 text-zinc-950 hover:bg-emerald-400;
+  @apply btn bg-dial text-night hover:bg-[#f7bd62];
 }
 @utility btn-ghost {
-  @apply btn border border-zinc-700 text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800;
+  @apply btn border border-line text-fg hover:border-dim;
 }
 @utility btn-danger {
-  @apply btn bg-rose-500 text-white hover:bg-rose-400;
+  @apply btn bg-alarm text-night hover:bg-[#f48a7d];
 }
 @utility input {
-  @apply w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500
-    focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500;
+  @apply w-full rounded-lg border border-line bg-night px-3 py-2 text-base text-fg placeholder-dim/70
+    focus:border-dial focus:outline-none;
 }
-@utility card {
-  @apply rounded-2xl border border-zinc-800 bg-zinc-900/60;
+@utility panel {
+  @apply rounded-[10px] border border-line bg-panel;
 }
 @utility label {
-  @apply mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-400;
+  @apply mb-1.5 block text-sm font-medium text-dim;
+}
+
+/* --- Scala di sintonia ------------------------------------------------- */
+
+/* Tacche: una piccola ogni 12px, una lunga ogni 60px. */
+@utility ticks {
+  background-image:
+    repeating-linear-gradient(to right, var(--color-line) 0 1px, transparent 1px 60px),
+    repeating-linear-gradient(to right, var(--color-line) 0 1px, transparent 1px 12px);
+  background-size:
+    100% 14px,
+    100% 7px;
+  background-position:
+    0 100%,
+    0 100%;
+  background-repeat: repeat-x;
+}
+
+/* Mentre un job è in corso l'ago cerca una stazione, con soste irregolari. */
+@keyframes scan {
+  0% { left: 3%; }
+  18% { left: 41%; }
+  24% { left: 38%; }
+  46% { left: 88%; }
+  52% { left: 85%; }
+  74% { left: 22%; }
+  80% { left: 25%; }
+  100% { left: 3%; }
+}
+/* Al caricamento della pagina di accesso: una sola sintonizzazione. */
+@keyframes tune-in {
+  0% { left: 4%; }
+  45% { left: 86%; }
+  70% { left: 55%; }
+  85% { left: 65%; }
+  100% { left: 62%; }
+}
+@keyframes blink {
+  50% { opacity: 0.35; }
+}
+
+.needle-scan {
+  animation: scan 7s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+.needle-tune {
+  left: 62%;
+  animation: tune-in 2.4s cubic-bezier(0.3, 0, 0.2, 1) 0.3s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+  .needle-scan {
+    animation: blink 1.6s ease-in-out infinite;
+  }
+  .needle-tune {
+    animation: none;
+  }
 }
