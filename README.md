@@ -169,6 +169,32 @@ Note:
 - Il rate limit sulle rotte di login usa l'IP della connessione. Dietro un proxy tutte le richieste arrivano
   dallo stesso IP, quindi conviene applicare un rate limit anche sul proxy.
 
+### Deploy su Google Cloud
+
+`scripts/deploy-gcp.sh` porta l'app su **Cloud Run**. L'immagine si costruisce con **Cloud Build** e va in
+**Artifact Registry**, i segreti stanno in **Secret Manager** e il database è un'istanza **Cloud SQL Postgres**
+già esistente, anche se si trova in un altro progetto. Docker in locale non serve.
+
+```bash
+gcloud auth login
+cp deploy.env.example deploy.env   # progetto, billing, istanza Cloud SQL, chiavi Spotify/Anthropic
+make deploy                        # oppure ./scripts/deploy-gcp.sh
+```
+
+Alla prima esecuzione lo script crea il progetto, lo collega al billing, abilita le API, crea il repository
+Docker e il service account `tunescout-run`. Gli assegna `cloudsql.client` sul progetto del DB, crea database e
+utente sull'istanza Cloud SQL (con password casuale) e salva i segreti. `TOKEN_ENC_KEY` viene generata in
+automatico. Le esecuzioni successive fanno solo build e deploy di una nuova revisione. I segreti si aggiornano
+solo se in `deploy.env` c'è un valore diverso.
+
+Il servizio gira con `--max-instances 1` (vedi la nota sopra) e `--no-cpu-throttling`, così i job continuano in
+background. Il timeout di 3600 s tiene aperto lo stream SSE. Alla fine lo script stampa l'URL e il **redirect URI
+da registrare su Spotify**. Per un dominio personalizzato imposta `BASE_URL` in `deploy.env`.
+
+Se l'avvio fallisce per i permessi sullo schema `public`, concedili una volta:
+`gcloud sql connect <istanza> --user=postgres --database=tunescout --project <progetto-db>` e poi
+`GRANT ALL ON SCHEMA public TO tunescout_app;`.
+
 ### Limiti di Spotify
 
 Le app Spotify nuove sono in **Development Mode**: al massimo **25 utenti**, che vanno aggiunti a mano in
