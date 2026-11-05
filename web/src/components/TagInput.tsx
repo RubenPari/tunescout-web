@@ -26,12 +26,12 @@ export default function TagInput({ id, value, onChange, placeholder, max = 10 }:
   return (
     <div className="input flex flex-wrap items-center gap-1.5 py-1.5">
       {value.map((g) => (
-        <span key={g} className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs text-emerald-200">
+        <span key={g} className="flex items-center gap-1 rounded-md bg-dial-soft py-0.5 pl-2.5 pr-1.5 text-sm text-dial">
           {g}
           <button
             type="button"
             aria-label={`Rimuovi ${g}`}
-            className="text-emerald-300 hover:text-white"
+            className="rounded px-1 text-dial/80 hover:text-fg"
             onClick={() => onChange(value.filter((x) => x !== g))}
           >
             ×
@@ -40,7 +40,7 @@ export default function TagInput({ id, value, onChange, placeholder, max = 10 }:
       ))}
       <input
         id={id}
-        className="min-w-24 flex-1 bg-transparent py-0.5 outline-none placeholder-zinc-500"
+        className="min-w-24 flex-1 bg-transparent py-0.5 outline-none placeholder-dim/70"
         value={text}
         maxLength={50}
         placeholder={value.length ? '' : placeholder}

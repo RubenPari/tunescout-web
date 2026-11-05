@@ -19,7 +19,7 @@ export default function PlaylistButton({ uris, defaultName, description, label =
   if (done) {
     return (
       <a className="btn-ghost" href={done.url} target="_blank" rel="noreferrer">
-        ✓ «{done.name}» creata · Apri
+        Apri «{done.name}» in Spotify
       </a>
     )
   }
@@ -63,7 +63,7 @@ export default function PlaylistButton({ uris, defaultName, description, label =
       <button type="button" className="btn-ghost" onClick={() => setOpen(false)} disabled={busy}>
         Annulla
       </button>
-      {error && <span className="text-sm text-rose-300">{error}</span>}
+      {error && <span className="text-sm text-alarm">{error}</span>}
     </form>
   )
 }

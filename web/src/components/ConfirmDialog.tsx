@@ -26,10 +26,10 @@ export default function ConfirmDialog({ open, title, children, confirmLabel, dan
         e.preventDefault()
         if (!busy) onCancel()
       }}
-      className="m-auto w-[min(28rem,calc(100%-2rem))] rounded-2xl border border-zinc-700 bg-zinc-900 p-6 text-zinc-100 backdrop:bg-black/70"
+      className="m-auto w-[min(28rem,calc(100%-2rem))] rounded-[14px] border border-line bg-panel p-6 text-fg backdrop:bg-night/80"
     >
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <div className="mt-2 text-sm text-zinc-300">{children}</div>
+      <h2 className="display text-2xl">{title}</h2>
+      <div className="mt-3 text-[15px] text-dim">{children}</div>
       <div className="mt-6 flex justify-end gap-2">
         <button className="btn-ghost" onClick={onCancel} disabled={busy}>
           Annulla
