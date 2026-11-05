@@ -1,0 +1,12 @@
+# File esclusi dall'upload verso Cloud Build
+.git
+.gitignore
+.gcloudignore
+.env
+.env.*
+deploy.env
+web/node_modules
+/tunescout-web
+/server
+.idea/
+.vscode/

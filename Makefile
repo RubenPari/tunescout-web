@@ -1,4 +1,4 @@
-.PHONY: build web test lint dev-server dev-web
+.PHONY: build web test lint dev-server dev-web deploy
 
 build: web
 	go build -o tunescout-web ./cmd/server
@@ -21,3 +21,7 @@ dev-server:
 
 dev-web:
 	cd web && npm run dev
+
+# Deploy su Google Cloud (configurazione in deploy.env)
+deploy:
+	./scripts/deploy-gcp.sh
