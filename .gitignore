@@ -1,0 +1,13 @@
+# Binari
+/tunescout-web
+/server
+
+# Segreti
+.env
+.env.*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+.DS_Store

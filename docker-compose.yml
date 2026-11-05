@@ -1,0 +1,32 @@
+# Avvio locale o self-hosting: copia .env.example in .env, compilalo e
+# lancia `docker compose up --build`.
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://tunescout:tunescout@db:5432/tunescout?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tunescout
+      POSTGRES_PASSWORD: tunescout
+      POSTGRES_DB: tunescout
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tunescout"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
