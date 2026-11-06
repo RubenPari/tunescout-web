@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
@@ -27,15 +28,16 @@ type Request struct {
 	Exclude        []string // "Artista — Titolo" già proposti o scartati in questo giro
 }
 
-type Recommender struct {
+// Client genera suggerimenti (Recommend) e sceglie brani da eliminare (PickPrune) con Claude.
+type Client struct {
 	client anthropic.Client
 	model  string
 	effort string
 }
 
-func New(model, effort string, opts ...option.RequestOption) *Recommender {
+func New(model, effort string, opts ...option.RequestOption) *Client {
 	// Legge ANTHROPIC_API_KEY (o un profilo `ant auth login`) dall'ambiente.
-	return &Recommender{client: anthropic.NewClient(opts...), model: model, effort: effort}
+	return &Client{client: anthropic.NewClient(opts...), model: model, effort: effort}
 }
 
 const systemPrompt = `Sei un curatore musicale esperto con una conoscenza ampia e profonda di generi, scene ed epoche diverse.
@@ -79,11 +81,10 @@ func supportsDefaultFallback(model string) bool {
 	return false
 }
 
-func (r *Recommender) Recommend(ctx context.Context, req Request) ([]Suggestion, error) {
+func (r *Client) Recommend(ctx context.Context, req Request) ([]Suggestion, error) {
 	var u strings.Builder
-	u.WriteString("# Profilo d'ascolto\n\n")
-	u.WriteString(req.Profile)
-	u.WriteString("\n\n# Richiesta\n")
+	writeProfile(&u, req.Profile)
+	u.WriteString("# Richiesta\n")
 	fmt.Fprintf(&u, "Proponi %d brani.\n", req.Count)
 	if req.Mood != "" {
 		fmt.Fprintf(&u, "Atmosfera/mood desiderato: %s\n", req.Mood)
@@ -108,9 +109,16 @@ func (r *Recommender) Recommend(ctx context.Context, req Request) ([]Suggestion,
 	return Parse(text)
 }
 
+// writeProfile apre il messaggio utente con il profilo d'ascolto.
+func writeProfile(b *strings.Builder, profile string) {
+	b.WriteString("# Profilo d'ascolto\n\n")
+	b.WriteString(profile)
+	b.WriteString("\n\n")
+}
+
 // complete invia una richiesta con output JSON vincolato allo schema e ne
 // restituisce il testo.
-func (r *Recommender) complete(ctx context.Context, system, user string, schema json.RawMessage) (string, error) {
+func (r *Client) complete(ctx context.Context, system, user string, schema json.RawMessage) (string, error) {
 	params := anthropic.BetaMessageNewParams{
 		Model:     anthropic.Model(r.model),
 		MaxTokens: 16000,
@@ -136,7 +144,7 @@ func (r *Recommender) complete(ctx context.Context, system, user string, schema 
 	case anthropic.BetaStopReasonRefusal:
 		return "", fmt.Errorf("Claude ha rifiutato la richiesta (categoria: %s)", msg.StopDetails.Category)
 	case anthropic.BetaStopReasonMaxTokens:
-		return "", errors.New("risposta troncata (max_tokens): riduci -n")
+		return "", errors.New("risposta del modello troncata: riduci il numero di brani")
 	}
 
 	var text strings.Builder
@@ -170,11 +178,11 @@ func describeAPIError(err error) error {
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
 		switch apiErr.StatusCode {
-		case 401:
+		case http.StatusUnauthorized:
 			return errors.New("Anthropic: credenziali non valide (imposta ANTHROPIC_API_KEY)")
-		case 404:
+		case http.StatusNotFound:
 			return fmt.Errorf("Anthropic: modello non trovato: %w", err)
-		case 429:
+		case http.StatusTooManyRequests:
 			return fmt.Errorf("Anthropic: rate limit raggiunto, riprova più tardi: %w", err)
 		}
 		return fmt.Errorf("Anthropic API (HTTP %d): %w", apiErr.StatusCode, err)

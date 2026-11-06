@@ -43,6 +43,16 @@ type Event struct {
 	Job     *store.Job `json:"job,omitempty"`
 }
 
+// UserError separa il messaggio salvato nel job e mostrato all'utente (Msg)
+// dalla causa originale (Err), che il runner registra nei log.
+type UserError struct {
+	Msg string
+	Err error
+}
+
+func (e *UserError) Error() string { return e.Msg }
+func (e *UserError) Unwrap() error { return e.Err }
+
 // Func è il lavoro di un job: log invia righe di progresso, il valore
 // restituito viene salvato come risultato JSON.
 type Func func(ctx context.Context, log func(string, ...any)) (any, error)
@@ -148,7 +158,11 @@ func (r *Runner) run(j *store.Job, l *live, fn Func, onFail func()) {
 			errMsg = "tempo massimo superato"
 		}
 		out = nil
-		slog.Warn("job fallito", "job", j.ID, "kind", j.Kind, "user", j.UserID, "err", err)
+		cause := err
+		if ue, ok := errors.AsType[*UserError](err); ok && ue.Err != nil {
+			cause = ue.Err
+		}
+		slog.Warn("job fallito", "job", j.ID, "kind", j.Kind, "user", j.UserID, "err", cause)
 		if onFail != nil {
 			onFail()
 		}

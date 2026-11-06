@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -244,10 +245,10 @@ func (c *client) follow(id string) (*store.Job, []string) {
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			c.e.t.Fatal(err)
 		}
-		if ev.Type == "log" {
+		if ev.Type == jobs.EventLog {
 			logs = append(logs, ev.Message)
 		}
-		if ev.Type == "done" {
+		if ev.Type == jobs.EventDone {
 			return ev.Job, logs
 		}
 	}
@@ -489,5 +490,35 @@ func TestLogoutAndDelete(t *testing.T) {
 	}
 	if code := c.do("GET", "/api/me", nil, nil); code != http.StatusUnauthorized {
 		t.Errorf("dopo la cancellazione la sessione deve essere invalida: HTTP %d", code)
+	}
+}
+
+func TestLoginCallbackErrors(t *testing.T) {
+	e := newEnv(t, 0)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	callback := func(query string, cookie *http.Cookie) string {
+		t.Helper()
+		req, _ := http.NewRequest("GET", e.ts.URL+"/api/auth/callback?"+query, nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		resp, err := noFollow.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusFound {
+			t.Fatalf("callback: HTTP %d, voglio 302", resp.StatusCode)
+		}
+		loc, _ := url.Parse(resp.Header.Get("Location"))
+		return loc.Query().Get("error")
+	}
+
+	if msg := callback("code=c&state=s", nil); !strings.Contains(msg, "Sessione di login scaduta") {
+		t.Errorf("state mancante: messaggio %q", msg)
+	}
+	state := &http.Cookie{Name: "ts_oauth_state", Value: "s"}
+	if msg := callback("error=access_denied&state=s", state); !strings.Contains(msg, "negato") {
+		t.Errorf("accesso negato: messaggio %q", msg)
 	}
 }

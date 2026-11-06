@@ -27,8 +27,14 @@ const (
 	SessionTTL    = 30 * 24 * time.Hour
 )
 
-// ErrReauth indica che il token Spotify non è più valido e serve un nuovo login.
-var ErrReauth = errors.New("autorizzazione Spotify scaduta o revocata: effettua di nuovo l'accesso")
+var (
+	// ErrReauth indica che il token Spotify non è più valido e serve un nuovo login.
+	ErrReauth = errors.New("autorizzazione Spotify scaduta o revocata: effettua di nuovo l'accesso")
+	// ErrBadState indica una callback OAuth con state mancante o diverso (login scaduto o forgiato).
+	ErrBadState = errors.New("state OAuth non valido: riprova l'accesso")
+	// ErrDenied indica che l'utente ha negato l'autorizzazione su Spotify.
+	ErrDenied = errors.New("autorizzazione negata da Spotify")
+)
 
 type Manager struct {
 	DB     *store.DB
@@ -75,10 +81,14 @@ func (m *Manager) FinishLogin(w http.ResponseWriter, r *http.Request) (*store.Us
 	c, err := r.Cookie(stateCookie)
 	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/api/auth", MaxAge: -1, HttpOnly: true, Secure: m.Secure})
 	if err != nil || c.Value == "" || subtle.ConstantTimeCompare([]byte(c.Value), []byte(q.Get("state"))) != 1 {
-		return nil, errors.New("state OAuth non valido: riprova l'accesso")
+		return nil, ErrBadState
 	}
-	if e := q.Get("error"); e != "" {
-		return nil, fmt.Errorf("autorizzazione negata da Spotify: %s", e)
+	switch e := q.Get("error"); e {
+	case "":
+	case "access_denied":
+		return nil, ErrDenied
+	default:
+		return nil, fmt.Errorf("errore OAuth da Spotify: %s", e)
 	}
 	ctx := m.ctx(r.Context())
 	tok, err := m.OAuth.Exchange(ctx, q.Get("code"))

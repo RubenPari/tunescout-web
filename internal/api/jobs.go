@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -200,7 +199,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request, uid int64, kind s
 		}
 		res, err := fn(ctx, sp, s.DB.ForUser(ctx, uid), log)
 		if err != nil {
-			return nil, errors.New(userMessage(err))
+			return nil, &jobs.UserError{Msg: userMessage(err), Err: err}
 		}
 		return res, nil
 	}, refund)

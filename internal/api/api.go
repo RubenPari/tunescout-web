@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/rubenpari/tunescout-web/internal/auth"
@@ -140,11 +139,10 @@ func loginErrorMessage(err error) string {
 	if errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden {
 		return "Spotify ha rifiutato l'accesso: il tuo account deve essere aggiunto in User Management dell'app (Development Mode)."
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "access_denied") {
+	switch {
+	case errors.Is(err, auth.ErrDenied):
 		return "Hai negato l'autorizzazione su Spotify."
-	}
-	if strings.Contains(msg, "state OAuth") {
+	case errors.Is(err, auth.ErrBadState):
 		return "Sessione di login scaduta: riprova."
 	}
 	return "Accesso non riuscito: riprova."

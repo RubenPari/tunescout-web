@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -93,8 +94,8 @@ func TestLoginFlow(t *testing.T) {
 	// 2. state diverso → rifiutato.
 	bad := httptest.NewRequest("GET", "/api/auth/callback?code=good-code&state=altro", nil)
 	bad.AddCookie(stateCookie)
-	if _, err := m.FinishLogin(httptest.NewRecorder(), bad); err == nil {
-		t.Fatal("callback con state errato accettata")
+	if _, err := m.FinishLogin(httptest.NewRecorder(), bad); !errors.Is(err, auth.ErrBadState) {
+		t.Fatalf("callback con state errato: err = %v, voglio ErrBadState", err)
 	}
 
 	// 3. callback valida → utente, token cifrato e sessione.

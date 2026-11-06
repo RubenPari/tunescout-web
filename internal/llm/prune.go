@@ -56,11 +56,10 @@ var pruneSchema = json.RawMessage(`{
 }`)
 
 // PickPrune chiede a Claude quali candidati sono meno in linea con il profilo.
-func (r *Recommender) PickPrune(ctx context.Context, req PruneRequest) ([]PrunePick, error) {
+func (r *Client) PickPrune(ctx context.Context, req PruneRequest) ([]PrunePick, error) {
 	var u strings.Builder
-	u.WriteString("# Profilo d'ascolto\n\n")
-	u.WriteString(req.Profile)
-	u.WriteString("\n\n# Brani salvati poco ascoltati\n")
+	writeProfile(&u, req.Profile)
+	u.WriteString("# Brani salvati poco ascoltati\n")
 	for i, c := range req.Candidates {
 		fmt.Fprintf(&u, "%d. %s — %s", i, c.Artist, c.Title)
 		var extra []string
