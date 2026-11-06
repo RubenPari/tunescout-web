@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -53,7 +53,7 @@ func (d *DB) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	for _, n := range names {
 		sqlText, err := migrations.ReadFile(n)
 		if err != nil {
@@ -183,13 +183,49 @@ func (s *Store) CountKnown() (tracks, artists int, err error) {
 // Seen indica se un brano è già in libreria, è già stato suggerito o è stato
 // rimosso dalla libreria con prune.
 func (s *Store) Seen(key, spotifyID string) (bool, error) {
-	var seen bool
-	err := s.pool.QueryRow(s.ctx, `SELECT
-		   EXISTS(SELECT 1 FROM known_tracks WHERE user_id=$1 AND (key=$2 OR ($3 <> '' AND spotify_id=$3)))
-		OR EXISTS(SELECT 1 FROM suggested    WHERE user_id=$1 AND (key=$2 OR ($3 <> '' AND spotify_id=$3)))
-		OR EXISTS(SELECT 1 FROM removed      WHERE user_id=$1 AND (key=$2 OR ($3 <> '' AND spotify_id=$3)))`,
-		s.uid, key, spotifyID).Scan(&seen)
-	return seen, err
+	set, err := s.SeenSet([]string{key}, []string{spotifyID})
+	return set[key] || (spotifyID != "" && set[spotifyID]), err
+}
+
+// SeenSet è la versione in blocco di Seen: restituisce l'insieme delle chiavi
+// e degli id Spotify, tra quelli indicati, già in libreria, già suggeriti o
+// rimossi. Gli id vuoti sono ignorati.
+func (s *Store) SeenSet(keys, spotifyIDs []string) (map[string]bool, error) {
+	ids := make([]string, 0, len(spotifyIDs))
+	for _, id := range spotifyIDs {
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if keys == nil {
+		keys = []string{}
+	}
+	rows, err := s.pool.Query(s.ctx, `
+		      SELECT key, spotify_id FROM known_tracks WHERE user_id=$1 AND (key = ANY($2) OR spotify_id = ANY($3))
+		UNION SELECT key, spotify_id FROM suggested    WHERE user_id=$1 AND (key = ANY($2) OR spotify_id = ANY($3))
+		UNION SELECT key, spotify_id FROM removed      WHERE user_id=$1 AND (key = ANY($2) OR spotify_id = ANY($3))`,
+		s.uid, keys, ids)
+	if err != nil {
+		return nil, err
+	}
+	return collectSet(rows)
+}
+
+// collectSet raccoglie le righe (chiave, id) in un insieme, ignorando gli id vuoti.
+func collectSet(rows pgx.Rows) (map[string]bool, error) {
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var k, id string
+		if err := rows.Scan(&k, &id); err != nil {
+			return nil, err
+		}
+		out[k] = true
+		if id != "" {
+			out[id] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 // Upsert nelle tabelle gemelle removed e kept (stesse colonne, timestamp diverso).
@@ -227,26 +263,30 @@ func (s *Store) Kept() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var k, id string
-		if err := rows.Scan(&k, &id); err != nil {
-			return nil, err
-		}
-		out[k] = true
-		if id != "" {
-			out[id] = true
-		}
-	}
-	return out, rows.Err()
+	return collectSet(rows)
 }
 
 func (s *Store) KnownArtist(normName string) (bool, error) {
-	var ok bool
-	err := s.pool.QueryRow(s.ctx, `SELECT EXISTS(SELECT 1 FROM known_artists WHERE user_id=$1 AND norm=$2)`,
-		s.uid, normName).Scan(&ok)
-	return ok, err
+	set, err := s.KnownArtists([]string{normName})
+	return set[normName], err
+}
+
+// KnownArtists restituisce quali artisti (nomi normalizzati) sono già noti.
+func (s *Store) KnownArtists(normNames []string) (map[string]bool, error) {
+	if normNames == nil {
+		normNames = []string{}
+	}
+	rows, err := s.pool.Query(s.ctx, `SELECT norm FROM known_artists WHERE user_id=$1 AND norm = ANY($2)`,
+		s.uid, normNames)
+	if err != nil {
+		return nil, err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[n] = true
+	}
+	return out, err
 }
 
 type Suggestion struct {

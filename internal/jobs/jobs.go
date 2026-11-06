@@ -99,25 +99,27 @@ func (r *Runner) Start(userID int64, kind string, params any, fn Func, onFail fu
 	if err != nil {
 		return nil, err
 	}
+	j := &store.Job{ID: newID(), UserID: userID, Kind: kind, Status: store.JobRunning, Params: p}
+	l := &live{subs: map[chan Event]struct{}{}, userID: userID}
+
+	// Prenota lo slot dell'utente prima di scrivere su DB, così due richieste
+	// concorrenti non creano due job.
 	r.mu.Lock()
 	if _, busy := r.active[userID]; busy {
 		r.mu.Unlock()
 		return nil, ErrBusy
 	}
-	j := &store.Job{ID: newID(), UserID: userID, Kind: kind, Status: store.JobRunning, Params: p}
 	r.active[userID] = j.ID
+	r.jobs[j.ID] = l
 	r.mu.Unlock()
 
 	if err := r.DB.CreateJob(r.ctx, j); err != nil {
 		r.mu.Lock()
 		delete(r.active, userID)
+		delete(r.jobs, j.ID)
 		r.mu.Unlock()
 		return nil, err
 	}
-	l := &live{subs: map[chan Event]struct{}{}, userID: userID}
-	r.mu.Lock()
-	r.jobs[j.ID] = l
-	r.mu.Unlock()
 
 	r.wg.Add(1)
 	go r.run(j, l, fn, onFail)

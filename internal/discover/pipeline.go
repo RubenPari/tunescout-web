@@ -76,27 +76,35 @@ func (p *Pipeline) Run(ctx context.Context, opt Options) ([]store.Suggestion, St
 		stats.Proposed += len(sugg)
 
 		// 1) filtro locale: già noti / già suggeriti / duplicati / artisti noti
+		keys := make([]string, len(sugg))
+		artists := make([]string, len(sugg))
+		for i, s := range sugg {
+			keys[i], artists[i] = norm.Key(s.Artist, s.Title), norm.Artist(s.Artist)
+		}
+		seen, err := p.ST.SeenSet(keys, nil)
+		if err != nil {
+			return results, stats, err
+		}
+		var knownArtists map[string]bool
+		if opt.NewArtistsOnly {
+			if knownArtists, err = p.ST.KnownArtists(artists); err != nil {
+				return results, stats, err
+			}
+		}
 		var cand []llm.Suggestion
-		for _, s := range sugg {
-			key := norm.Key(s.Artist, s.Title)
+		for i, s := range sugg {
 			exclude = append(exclude, s.Artist+" — "+s.Title)
-			if seenKeys[key] {
+			if seenKeys[keys[i]] {
 				continue
 			}
-			seenKeys[key] = true
-			if seen, err := p.ST.Seen(key, ""); err != nil {
-				return results, stats, err
-			} else if seen {
+			seenKeys[keys[i]] = true
+			if seen[keys[i]] {
 				stats.AlreadyKnown++
 				continue
 			}
-			if opt.NewArtistsOnly {
-				if known, err := p.ST.KnownArtist(norm.Artist(s.Artist)); err != nil {
-					return results, stats, err
-				} else if known {
-					stats.KnownArtist++
-					continue
-				}
+			if knownArtists[artists[i]] {
+				stats.KnownArtist++
+				continue
 			}
 			cand = append(cand, s)
 		}
@@ -106,6 +114,15 @@ func (p *Pipeline) Run(ctx context.Context, opt Options) ([]store.Suggestion, St
 		verified := p.verify(ctx, cand)
 
 		// 3) controllo finale (ID Spotify già noto?) e raccolta, mantenendo l'ordine di Claude
+		var vKeys, vIDs []string
+		for _, v := range verified {
+			if v != nil {
+				vKeys, vIDs = append(vKeys, v.Key), append(vIDs, v.SpotifyID)
+			}
+		}
+		if seen, err = p.ST.SeenSet(vKeys, vIDs); err != nil {
+			return results, stats, err
+		}
 		for i, v := range verified {
 			if len(results) >= opt.Count {
 				break
@@ -114,9 +131,7 @@ func (p *Pipeline) Run(ctx context.Context, opt Options) ([]store.Suggestion, St
 				stats.NotFound++
 				continue
 			}
-			if seen, err := p.ST.Seen(v.Key, v.SpotifyID); err != nil {
-				return results, stats, err
-			} else if seen || seenKeys["id:"+v.SpotifyID] {
+			if seen[v.Key] || seen[v.SpotifyID] || seenKeys["id:"+v.SpotifyID] {
 				stats.AlreadyKnown++
 				continue
 			}
@@ -142,9 +157,7 @@ func (p *Pipeline) verify(ctx context.Context, cand []llm.Suggestion) []*store.S
 	sem := make(chan struct{}, 5)
 	var wg sync.WaitGroup
 	for i, c := range cand {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			t, err := p.find(ctx, c)
@@ -157,7 +170,7 @@ func (p *Pipeline) verify(ctx context.Context, cand []llm.Suggestion) []*store.S
 			}
 			sg := SuggestionFrom(*t, c.Reason)
 			out[i] = &sg
-		}()
+		})
 	}
 	wg.Wait()
 	return out

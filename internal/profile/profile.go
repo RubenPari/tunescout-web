@@ -3,10 +3,12 @@
 package profile
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/rubenpari/tunescout-web/internal/norm"
@@ -47,23 +49,60 @@ type Source interface {
 	PlaylistTracks(ctx context.Context, id string) ([]spotify.Track, error)
 }
 
+// rangeWeight pesa gli artisti top di ogni periodo (spotify.TimeRanges): i recenti contano di più.
+var rangeWeight = map[string]float64{"short_term": 3, "medium_term": 2, "long_term": 1}
+
+// library accumula brani e artisti noti durante la sincronizzazione.
+type library struct {
+	known   []store.KnownTrack
+	artists map[string]string // nome normalizzato → nome
+}
+
+func (l *library) add(t spotify.Track, source string) {
+	if t.ID == "" || len(t.Artists) == 0 {
+		return
+	}
+	l.known = append(l.known, store.KnownTrack{
+		Key: t.Key(), SpotifyID: t.ID, Artist: t.Artists[0].Name, Title: t.Name, Source: source,
+	})
+	for _, a := range t.Artists {
+		l.artists[norm.Artist(a.Name)] = a.Name
+	}
+}
+
 // Sync scarica la libreria e aggiorna store + snapshot del profilo.
 func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...any)) error {
-	var known []store.KnownTrack
-	artists := map[string]string{}
-	add := func(t spotify.Track, source string) {
-		if t.ID == "" || len(t.Artists) == 0 {
-			return
-		}
-		known = append(known, store.KnownTrack{
-			Key: t.Key(), SpotifyID: t.ID,
-			Artist: t.Artists[0].Name, Title: t.Name, Source: source,
-		})
-		for _, a := range t.Artists {
-			artists[norm.Artist(a.Name)] = a.Name
-		}
-	}
+	lib := &library{artists: map[string]string{}}
+	var snap Snapshot
 
+	saved, err := collectSaved(ctx, sp, lib, log)
+	if err != nil {
+		return err
+	}
+	snap.SavedSample = refs(saved, 30)
+
+	if err := collectTop(ctx, sp, lib, &snap, log); err != nil {
+		return err
+	}
+	if err := collectPlaylists(ctx, sp, lib, log); err != nil {
+		return err
+	}
+	snap.ArtistCount = len(lib.artists)
+
+	if err := st.ReplaceLibrary(lib.known, lib.artists); err != nil {
+		return err
+	}
+	if snap.LibrarySize, _, err = st.CountKnown(); err != nil {
+		return err
+	}
+	if err := st.SetMetaJSON(snapshotKey, snap); err != nil {
+		return err
+	}
+	return st.MarkSynced()
+}
+
+// collectSaved scarica i brani salvati e li restituisce dal più recente.
+func collectSaved(ctx context.Context, sp Source, lib *library, log func(string, ...any)) ([]spotify.Track, error) {
 	log("Scarico i brani salvati…")
 	saved, err := sp.SavedTracks(ctx, func(n int) {
 		if n%500 == 0 {
@@ -71,20 +110,22 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 		}
 	})
 	if err != nil {
-		return fmt.Errorf("brani salvati: %w", err)
+		return nil, fmt.Errorf("brani salvati: %w", err)
 	}
-	savedTracks := make([]spotify.Track, len(saved))
+	tracks := make([]spotify.Track, len(saved))
 	for i, s := range saved {
-		savedTracks[i] = s.Track
-		add(s.Track, store.SourceSaved)
+		tracks[i] = s.Track
+		lib.add(s.Track, store.SourceSaved)
 	}
 	log("  %d brani salvati", len(saved))
+	return tracks, nil
+}
 
-	snap := Snapshot{}
-	scores := map[string]*ArtistScore{}
-	rangeWeight := map[string]float64{"short_term": 3, "medium_term": 2, "long_term": 1}
-
+// collectTop scarica top artisti e top brani per ogni periodo, calcola il
+// punteggio degli artisti e riempie i brani recenti/di sempre dello snapshot.
+func collectTop(ctx context.Context, sp Source, lib *library, snap *Snapshot, log func(string, ...any)) error {
 	log("Scarico top artisti e top brani…")
+	scores := map[string]*ArtistScore{}
 	for _, tr := range spotify.TimeRanges {
 		top, err := sp.TopArtists(ctx, tr)
 		if err != nil {
@@ -92,10 +133,10 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 		}
 		for i, a := range top {
 			k := norm.Artist(a.Name)
-			artists[k] = a.Name
+			lib.artists[k] = a.Name
 			s, ok := scores[k]
 			if !ok {
-				s = &ArtistScore{Name: a.Name, Genres: a.Genres}
+				s = &ArtistScore{Name: a.Name}
 				scores[k] = s
 			}
 			if len(s.Genres) == 0 {
@@ -109,7 +150,7 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 			return fmt.Errorf("top brani (%s): %w", tr, err)
 		}
 		for _, t := range tracks {
-			add(t, store.SourceTop)
+			lib.add(t, store.SourceTop)
 		}
 		switch tr {
 		case "short_term":
@@ -118,7 +159,15 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 			snap.AllTimeTracks = refs(tracks, 25)
 		}
 	}
+	for _, s := range scores {
+		snap.TopArtists = append(snap.TopArtists, *s)
+	}
+	slices.SortFunc(snap.TopArtists, func(a, b ArtistScore) int { return cmp.Compare(b.Score, a.Score) })
+	return nil
+}
 
+// collectPlaylists legge i brani delle playlist di proprietà dell'utente.
+func collectPlaylists(ctx context.Context, sp Source, lib *library, log func(string, ...any)) error {
 	log("Scarico le tue playlist…")
 	me, err := sp.Me(ctx)
 	if err != nil {
@@ -128,45 +177,26 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 	if err != nil {
 		return fmt.Errorf("playlist: %w", err)
 	}
-	nPl := 0
+	n := 0
 	for _, p := range pls {
 		if p.Owner.ID != me.ID {
 			continue // GET /playlists/{id}/items è consentito solo per playlist proprie
 		}
 		tracks, err := sp.PlaylistTracks(ctx, p.ID)
 		var apiErr *spotify.APIError
-		if errors.As(err, &apiErr) && apiErr.Status == 403 {
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusForbidden {
 			continue
 		}
 		if err != nil {
 			return fmt.Errorf("playlist %q: %w", p.Name, err)
 		}
 		for _, t := range tracks {
-			add(t, store.SourcePlaylist)
+			lib.add(t, store.SourcePlaylist)
 		}
-		nPl++
+		n++
 	}
-	log("  %d playlist lette", nPl)
-
-	for _, s := range scores {
-		snap.TopArtists = append(snap.TopArtists, *s)
-	}
-	sort.Slice(snap.TopArtists, func(i, j int) bool { return snap.TopArtists[i].Score > snap.TopArtists[j].Score })
-	snap.SavedSample = refs(savedTracks, 30)
-	snap.ArtistCount = len(artists)
-
-	if err := st.ReplaceLibrary(known, artists); err != nil {
-		return err
-	}
-	n, _, err := st.CountKnown()
-	if err != nil {
-		return err
-	}
-	snap.LibrarySize = n
-	if err := st.SetMetaJSON(snapshotKey, snap); err != nil {
-		return err
-	}
-	return st.MarkSynced()
+	log("  %d playlist lette", n)
+	return nil
 }
 
 func refs(tracks []spotify.Track, max int) []TrackRef {
@@ -246,7 +276,7 @@ func (s *Snapshot) Render(liked, skipped []store.Suggestion) string {
 		for g, c := range genreCount {
 			gs = append(gs, gc{g, c})
 		}
-		sort.Slice(gs, func(i, j int) bool { return gs[i].c > gs[j].c })
+		slices.SortFunc(gs, func(a, b gc) int { return cmp.Compare(b.c, a.c) })
 		var names []string
 		for i := 0; i < len(gs) && i < 15; i++ {
 			names = append(names, gs[i].g)

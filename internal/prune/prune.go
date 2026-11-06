@@ -7,10 +7,10 @@
 package prune
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -174,13 +174,11 @@ func Candidates(saved []spotify.SavedTrack, top []spotify.Track, topArtists []pr
 		}
 		out = append(out, s)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		ci := perArtist[norm.Artist(out[i].Track.Artists[0].Name)]
-		cj := perArtist[norm.Artist(out[j].Track.Artists[0].Name)]
-		if ci != cj {
-			return ci < cj
-		}
-		return out[i].AddedAt.Before(out[j].AddedAt)
+	slices.SortStableFunc(out, func(a, b spotify.SavedTrack) int {
+		return cmp.Or(
+			cmp.Compare(perArtist[norm.Artist(a.Track.Artists[0].Name)], perArtist[norm.Artist(b.Track.Artists[0].Name)]),
+			a.AddedAt.Compare(b.AddedAt),
+		)
 	})
 	return out
 }

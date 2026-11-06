@@ -111,3 +111,29 @@ func TestPipeline(t *testing.T) {
 		t.Fatalf("brano già suggerito riproposto: %+v", res2)
 	}
 }
+
+// Duplicati nello stesso giro e brani già noti solo per id Spotify (chiave diversa).
+func TestPipelineDuplicatesAndKnownIDs(t *testing.T) {
+	st := newStore(t)
+	sp := &fakeSpotify{catalog: map[string]spotify.Track{
+		"slowdive|alison": track("s1", "Slowdive", "Alison"),
+		// stesso id del brano in libreria, ma artista/titolo diversi
+		"thom|creep (versione)": track("known1", "Thom", "Creep (versione)"),
+	}}
+	f := &fakeLLM{rounds: [][]llm.Suggestion{{
+		{Artist: "Slowdive", Title: "Alison"},
+		{Artist: "Slowdive", Title: "Alison (Remastered)"},
+		{Artist: "Thom", Title: "Creep (versione)"},
+	}}}
+	p := &Pipeline{SP: sp, LLM: f, ST: st, Log: func(string, ...any) {}}
+	res, stats, err := p.Run(context.Background(), Options{Count: 3, MaxRounds: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].SpotifyID != "s1" {
+		t.Fatalf("risultati inattesi: %+v (%s)", res, stats)
+	}
+	if stats.AlreadyKnown != 1 || stats.NotFound != 0 {
+		t.Errorf("statistiche inattese: %s", stats)
+	}
+}

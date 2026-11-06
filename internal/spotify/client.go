@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -295,7 +296,7 @@ func (c *Client) CreatePlaylist(ctx context.Context, name, description string) (
 }
 
 func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []string) error {
-	for _, chunk := range chunks(uris, 100) {
+	for chunk := range slices.Chunk(uris, 100) {
 		if err := c.do(ctx, http.MethodPost, "/playlists/"+playlistID+"/items", map[string]any{"uris": chunk}, nil); err != nil {
 			return err
 		}
@@ -303,34 +304,23 @@ func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, uris []st
 	return nil
 }
 
-// SaveToLibrary salva brani nella libreria (PUT /me/library, max 40 URI per chiamata).
+// SaveToLibrary salva brani nella libreria (PUT /me/library).
 func (c *Client) SaveToLibrary(ctx context.Context, uris []string) error {
-	for _, chunk := range chunks(uris, 40) {
-		v := url.Values{"uris": {strings.Join(chunk, ",")}}
-		if err := c.do(ctx, http.MethodPut, "/me/library?"+v.Encode(), nil, nil); err != nil {
-			return err
-		}
-	}
-	return nil
+	return c.library(ctx, http.MethodPut, uris)
 }
 
-// RemoveFromLibrary rimuove brani dalla libreria (DELETE /me/library, max 40 URI per chiamata).
+// RemoveFromLibrary rimuove brani dalla libreria (DELETE /me/library).
 func (c *Client) RemoveFromLibrary(ctx context.Context, uris []string) error {
-	for _, chunk := range chunks(uris, 40) {
+	return c.library(ctx, http.MethodDelete, uris)
+}
+
+// library chiama /me/library con method, al massimo 40 URI per chiamata.
+func (c *Client) library(ctx context.Context, method string, uris []string) error {
+	for chunk := range slices.Chunk(uris, 40) {
 		v := url.Values{"uris": {strings.Join(chunk, ",")}}
-		if err := c.do(ctx, http.MethodDelete, "/me/library?"+v.Encode(), nil, nil); err != nil {
+		if err := c.do(ctx, method, "/me/library?"+v.Encode(), nil, nil); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func chunks(s []string, n int) [][]string {
-	var out [][]string
-	for len(s) > 0 {
-		k := min(n, len(s))
-		out = append(out, s[:k])
-		s = s[k:]
-	}
-	return out
 }
