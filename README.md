@@ -195,6 +195,25 @@ Se l'avvio fallisce per i permessi sullo schema `public`, concedili una volta:
 `gcloud sql connect <istanza> --user=postgres --database=tunescout --project <progetto-db>` e poi
 `GRANT ALL ON SCHEMA public TO tunescout_app;`.
 
+### Deploy automatico a ogni release
+
+Il workflow `.github/workflows/deploy.yml` parte quando pubblichi una release su GitHub. Puoi lanciarlo anche a
+mano da Actions → Deploy → Run workflow. Prima ripete la CI, poi esegue `deploy-gcp.sh` con `DEPLOY_ONLY=1`: build,
+deploy e controllo di `/api/health`, senza toccare progetto, IAM, database e segreti. L'immagine prende come tag
+il nome della release, per esempio `v0.2.0`.
+
+La configurazione si fa una volta, dopo il primo `make deploy`:
+
+```bash
+./scripts/setup-github-deploy.sh   # serve gcloud (proprietario del progetto) e gh autenticati
+```
+
+Lo script crea il service account `github-deploy` con i soli permessi di build e deploy. Configura poi la
+**Workload Identity Federation**, così GitHub si autentica senza chiavi JSON: sono accettati solo i token di
+questo repository nei job dell'ambiente `production`. Infine imposta le variabili del repository lette dal
+workflow. Per richiedere un'approvazione manuale prima di ogni deploy, aggiungi dei reviewer all'ambiente
+`production` (Settings → Environments).
+
 ### Limiti di Spotify
 
 Le app Spotify nuove sono in **Development Mode**: al massimo **25 utenti**, che vanno aggiunti a mano in

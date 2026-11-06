@@ -8,6 +8,11 @@
 #
 # Lo script è idempotente: alla prima esecuzione crea tutto, dopo pubblica solo
 # una nuova revisione. Non ruota mai TOKEN_ENC_KEY né la password del database.
+#
+# DEPLOY_ONLY=1 salta la configurazione (passi 2-8: progetto, API, IAM, database,
+# segreti) e fa solo build, deploy e verifica: è la modalità usata dalla CI
+# (.github/workflows/deploy.yml), con permessi minimi. Opzionali: DB_CONN
+# (connection name di Cloud SQL, altrimenti viene letto) e IMAGE_TAG.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -67,6 +72,10 @@ ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' | h
 [ -n "$ACCOUNT" ] || die "nessun account gcloud attivo: esegui 'gcloud auth login'"
 log "account: $ACCOUNT · progetto: $GCP_PROJECT_ID · regione: $REGION"
 
+RUN_SA="tunescout-run@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+
+# Passi 2-8: configurazione una tantum, saltati con DEPLOY_ONLY=1.
+setup() {
 # ---------------------------------------------------------------------------
 # 2. Progetto e fatturazione
 # ---------------------------------------------------------------------------
@@ -107,7 +116,6 @@ fi
 # ---------------------------------------------------------------------------
 # 5. Service account e permessi
 # ---------------------------------------------------------------------------
-RUN_SA="tunescout-run@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
 if ! gcloud iam service-accounts describe "$RUN_SA" "${P[@]}" >/dev/null 2>&1; then
@@ -199,12 +207,23 @@ secret_from_env ANTHROPIC_API_KEY
 if ! secret_exists TOKEN_ENC_KEY; then
   secret_put TOKEN_ENC_KEY "${TOKEN_ENC_KEY:-$(openssl rand -base64 32)}"
 fi
+} # fine setup
+
+if [ "${DEPLOY_ONLY:-0}" = 1 ]; then
+  log "DEPLOY_ONLY: salto la configurazione, eseguo solo build e deploy"
+  DB_CONN="${DB_CONN:-$(gcloud sql instances describe "$DB_INSTANCE" "${DBP[@]}" --format='value(connectionName)')}" \
+    || die "istanza Cloud SQL $DB_PROJECT/$DB_INSTANCE non trovata (oppure imposta DB_CONN)"
+else
+  setup
+fi
 
 # ---------------------------------------------------------------------------
 # 9. Build dell'immagine con Cloud Build
 # ---------------------------------------------------------------------------
 TAG="$(date +%Y%m%d-%H%M%S)"
-if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if [ -n "${IMAGE_TAG:-}" ]; then
+  TAG="$IMAGE_TAG"
+elif git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   TAG="$(git -C "$ROOT" rev-parse --short HEAD)"
   if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
     TAG="${TAG}-dirty-$(date +%H%M%S)"
@@ -218,7 +237,10 @@ retry gcloud builds submit "$ROOT" --tag "$IMAGE" "${P[@]}"
 # ---------------------------------------------------------------------------
 # 10. Deploy su Cloud Run
 # ---------------------------------------------------------------------------
-[ -n "$BASE_URL" ] || BASE_URL="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
+if [ -z "$BASE_URL" ]; then
+  PROJECT_NUMBER="${PROJECT_NUMBER:-$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')}"
+  BASE_URL="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
+fi
 BASE_URL="${BASE_URL%/}"
 
 ENV_VARS="BASE_URL=${BASE_URL}"
