@@ -5,6 +5,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import ErrorBox from '../components/ErrorBox'
 import JobLog from '../components/JobLog'
 import { useJob } from '../useJob'
+import { leaveApp, plural } from '../util'
 
 const fmt = new Intl.DateTimeFormat('it-IT', { dateStyle: 'medium', timeStyle: 'short' })
 
@@ -19,8 +20,7 @@ export default function Dashboard({ me }: { me: Me }) {
     setDeleting(true)
     try {
       await api.deleteAccount()
-      sessionStorage.clear()
-      window.location.href = '/'
+      leaveApp()
     } catch {
       setDeleting(false)
       setConfirmDelete(false)
@@ -30,7 +30,7 @@ export default function Dashboard({ me }: { me: Me }) {
   const n = (v: number) => v.toLocaleString('it-IT')
   const usageText = usage.limit
     ? `Oggi hai usato ${usage.today} ricerche su ${usage.limit}.`
-    : `Oggi hai fatto ${usage.today} ${usage.today === 1 ? 'ricerca' : 'ricerche'}.`
+    : `Oggi hai fatto ${usage.today} ${plural(usage.today, 'ricerca', 'ricerche')}.`
 
   return (
     <div className="space-y-12">

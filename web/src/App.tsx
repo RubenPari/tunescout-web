@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router'
-import { api, ApiError } from './api'
+import { api, ApiError, queryKeys } from './api'
 import Layout from './components/Layout'
 import Spinner from './components/Spinner'
 import Dashboard from './pages/Dashboard'
@@ -10,7 +10,7 @@ import Login from './pages/Login'
 import Prune from './pages/Prune'
 
 export default function App() {
-  const me = useQuery({ queryKey: ['me'], queryFn: api.me })
+  const me = useQuery({ queryKey: queryKeys.me, queryFn: api.me })
 
   if (me.isPending) {
     return (

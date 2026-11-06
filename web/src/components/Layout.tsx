@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet } from 'react-router'
 import { api, type Me } from '../api'
+import { leaveApp } from '../util'
 import Dial, { type Station } from './Dial'
 import Logo from './Logo'
 
@@ -15,9 +16,8 @@ export default function Layout({ me }: { me: Me }) {
   const qc = useQueryClient()
   const logout = async () => {
     await api.logout()
-    sessionStorage.clear()
     qc.clear()
-    window.location.href = '/'
+    leaveApp()
   }
   return (
     <div className="min-h-screen">

@@ -1,18 +1,21 @@
 import { useState } from 'react'
-import { api, ApiError, type DiscoverParams, type DiscoverResult, type Suggestion } from '../api'
+import { api, toApiError, type ApiError, type DiscoverParams, type DiscoverResult, type Feedback, type Suggestion } from '../api'
 import ErrorBox from '../components/ErrorBox'
 import JobLog from '../components/JobLog'
+import NumberField from '../components/NumberField'
+import PageHeader from '../components/PageHeader'
 import PlaylistButton from '../components/PlaylistButton'
 import TagInput from '../components/TagInput'
 import TrackCard from '../components/TrackCard'
 import { useJob } from '../useJob'
+import { plural } from '../util'
 
-type Feedback = Record<string, 'like' | 'skip' | 'pending'>
+type FeedbackState = Feedback | 'pending'
 
 export default function Discover() {
   const job = useJob<DiscoverResult>('discover')
   const [form, setForm] = useState<DiscoverParams>({ count: 20, mood: '', genres: [], newArtists: false })
-  const [feedback, setFeedback] = useState<Feedback>({})
+  const [feedback, setFeedback] = useState<Record<string, FeedbackState>>({})
   const [actionError, setActionError] = useState<ApiError | null>(null)
 
   const result = job.job?.status === 'done' ? job.job.result : undefined
@@ -24,7 +27,7 @@ export default function Discover() {
     void job.start(form)
   }
 
-  const send = async (list: Suggestion[], fb: 'like' | 'skip') => {
+  const send = async (list: Suggestion[], fb: Feedback) => {
     const keys = list.map((s) => s.key)
     const prev = { ...feedback }
     setActionError(null)
@@ -34,7 +37,7 @@ export default function Discover() {
       setFeedback((f) => ({ ...f, ...Object.fromEntries(keys.map((k) => [k, fb])) }))
     } catch (e) {
       setFeedback(prev)
-      setActionError(e instanceof ApiError ? e : new ApiError(0, String(e)))
+      setActionError(toApiError(e))
     }
   }
 
@@ -43,11 +46,12 @@ export default function Discover() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="display text-[clamp(2.25rem,7vw,3.25rem)]">Scopri</h1>
-        <p className="mt-2 max-w-[62ch] text-dim">
-          Claude propone brani in base al tuo profilo. Quelli che non esistono su Spotify, che hai già o che ti sono
-          già stati suggeriti vengono scartati.
-        </p>
+        <PageHeader title="Scopri">
+          <p className="mt-2 max-w-[62ch] text-dim">
+            Claude propone brani in base al tuo profilo. Quelli che non esistono su Spotify, che hai già o che ti sono
+            già stati suggeriti vengono scartati.
+          </p>
+        </PageHeader>
       </header>
 
       <form
@@ -57,20 +61,14 @@ export default function Discover() {
           submit()
         }}
       >
-        <div>
-          <label className="label" htmlFor="count">
-            Brani
-          </label>
-          <input
-            id="count"
-            className="input"
-            type="number"
-            min={1}
-            max={50}
-            value={form.count}
-            onChange={(e) => setForm({ ...form, count: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })}
-          />
-        </div>
+        <NumberField
+          id="count"
+          label="Brani"
+          min={1}
+          max={50}
+          value={form.count}
+          onChange={(count) => setForm({ ...form, count })}
+        />
         <div>
           <label className="label" htmlFor="mood">
             Mood, se vuoi
@@ -99,7 +97,7 @@ export default function Discover() {
           <label className="flex cursor-pointer items-center gap-2.5 text-[15px]">
             <input
               type="checkbox"
-              className="h-4 w-4 accent-[#f2a93b]"
+              className="h-4 w-4 accent-dial"
               checked={form.newArtists}
               onChange={(e) => setForm({ ...form, newArtists: e.target.checked })}
             />
@@ -124,7 +122,7 @@ export default function Discover() {
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="display mr-auto text-2xl tabular-nums">
-                  {tracks.length} {tracks.length === 1 ? 'brano' : 'brani'}
+                  {tracks.length} {plural(tracks.length, 'brano', 'brani')}
                   {tracks.length < result.requested && (
                     <span className="ml-2 text-base font-normal tracking-normal text-dim [font-stretch:100%]">su {result.requested} richiesti</span>
                   )}
@@ -166,7 +164,7 @@ function Actions({
   onSkip,
   url,
 }: {
-  state?: 'like' | 'skip' | 'pending'
+  state?: FeedbackState
   onLike: () => void
   onSkip: () => void
   url: string

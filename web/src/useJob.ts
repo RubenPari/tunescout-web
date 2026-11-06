@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError, type Job, type JobKind } from './api'
+import { api, ApiError, queryKeys, toApiError, type Job, type JobKind } from './api'
 
 export interface JobState<R> {
   job: Job<R> | null
@@ -43,8 +43,8 @@ export function useJob<R>(kind: JobKind): JobState<R> {
         setJob(job)
         setRunning(false)
         if (job.status === 'failed') setError(new ApiError(500, job.error ?? 'Operazione non riuscita'))
-        void qc.invalidateQueries({ queryKey: ['me'] })
-        void qc.invalidateQueries({ queryKey: ['history'] })
+        void qc.invalidateQueries({ queryKey: queryKeys.me })
+        void qc.invalidateQueries({ queryKey: queryKeys.history })
       })
       es.onerror = () => {
         // EventSource si riconnette da solo; se il job non esiste più, chiudi.
@@ -70,10 +70,10 @@ export function useJob<R>(kind: JobKind): JobState<R> {
       try {
         const j = await api.startJob(kind, params)
         sessionStorage.setItem(storageKey(kind), j.id)
-        void qc.invalidateQueries({ queryKey: ['me'] })
+        void qc.invalidateQueries({ queryKey: queryKeys.me })
         follow(j.id)
       } catch (e) {
-        setError(e instanceof ApiError ? e : new ApiError(0, String(e)))
+        setError(toApiError(e))
       }
     },
     [kind, follow, qc],

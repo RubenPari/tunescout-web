@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { api, ApiError, type Playlist } from '../api'
+import { api, toApiError, type Playlist } from '../api'
 
 interface Props {
   uris: string[]
@@ -36,7 +36,7 @@ export default function PlaylistButton({ uris, defaultName, description, label =
     try {
       setDone(await api.createPlaylist(name, uris, description))
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e))
+      setError(toApiError(e).message)
     } finally {
       setBusy(false)
     }

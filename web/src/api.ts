@@ -7,6 +7,8 @@ export interface User {
   createdAt: string
 }
 
+export type Feedback = 'like' | 'skip'
+
 export interface Suggestion {
   key: string
   spotifyId: string
@@ -19,7 +21,7 @@ export interface Suggestion {
   url: string
   image: string
   createdAt: string
-  feedback: '' | 'like' | 'skip'
+  feedback: '' | Feedback
 }
 
 export type JobKind = 'sync' | 'discover' | 'prune'
@@ -92,6 +94,17 @@ export class ApiError extends Error {
   }
 }
 
+/** Normalizza un errore qualsiasi (rete, eccezioni) in ApiError. */
+export function toApiError(e: unknown): ApiError {
+  return e instanceof ApiError ? e : new ApiError(0, String(e))
+}
+
+/** Chiavi di React Query condivise tra le pagine. */
+export const queryKeys = {
+  me: ['me'],
+  history: ['history'],
+} as const
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -121,9 +134,9 @@ export const api = {
   startJob: (kind: JobKind, params: object = {}) => request<Job>('POST', `/api/jobs/${kind}`, params),
   job: <R>(id: string) => request<Job<R>>('GET', `/api/jobs/${id}`),
 
-  history: (feedback: '' | 'like' | 'skip', limit = 200) =>
+  history: (feedback: '' | Feedback, limit = 200) =>
     request<{ items: Suggestion[] }>('GET', `/api/history?feedback=${feedback}&limit=${limit}`),
-  feedback: (keys: string[], feedback: 'like' | 'skip') =>
+  feedback: (keys: string[], feedback: Feedback) =>
     request<{ updated: number }>('POST', '/api/feedback', { keys, feedback }),
   createPlaylist: (name: string, uris: string[], description = '') =>
     request<Playlist>('POST', '/api/playlists', { name, uris, description }),

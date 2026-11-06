@@ -1,5 +1,6 @@
 import { useSearchParams } from 'react-router'
 import { Band } from '../components/Dial'
+import Notice from '../components/Notice'
 
 export default function Login() {
   const [params] = useSearchParams()
@@ -17,9 +18,9 @@ export default function Login() {
       </div>
 
       {error && (
-        <div role="alert" className="mt-8 rounded-lg border-l-[3px] border-alarm bg-alarm-soft px-4 py-3 text-[15px]">
+        <Notice tone="alarm" className="mt-8">
           {error}
-        </div>
+        </Notice>
       )}
 
       <div className="mt-10">

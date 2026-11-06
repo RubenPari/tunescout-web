@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { api } from '../api'
+import { api, queryKeys, type Feedback } from '../api'
 import ErrorBox from '../components/ErrorBox'
+import PageHeader from '../components/PageHeader'
 import Spinner from '../components/Spinner'
 
 const filters = [
@@ -13,15 +14,16 @@ const filters = [
 const dateFmt = new Intl.DateTimeFormat('it-IT', { dateStyle: 'short' })
 
 export default function History() {
-  const [feedback, setFeedback] = useState<'' | 'like' | 'skip'>('')
-  const q = useQuery({ queryKey: ['history', feedback], queryFn: () => api.history(feedback) })
+  const [feedback, setFeedback] = useState<'' | Feedback>('')
+  const q = useQuery({ queryKey: [...queryKeys.history, feedback], queryFn: () => api.history(feedback) })
 
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-end gap-4">
         <div className="mr-auto">
-          <h1 className="display text-[clamp(2.25rem,7vw,3.25rem)]">Storico</h1>
-          <p className="mt-2 text-dim">I brani che ti sono stati proposti e cosa ne hai pensato.</p>
+          <PageHeader title="Storico">
+            <p className="mt-2 text-dim">I brani che ti sono stati proposti e cosa ne hai pensato.</p>
+          </PageHeader>
         </div>
         <div className="flex gap-1 rounded-lg border border-line p-1" role="tablist" aria-label="Filtra per feedback">
           {filters.map((f) => (
