@@ -144,23 +144,9 @@ func (s *Server) pruneRemove(w http.ResponseWriter, r *http.Request, uid int64) 
 		return
 	}
 	ctx := r.Context()
-	j, err := s.DB.Job(ctx, uid, r.PathValue("id"))
-	if err != nil {
-		s.fail(w, r, err)
+	byURI, ok := s.pruneItems(w, r, uid)
+	if !ok {
 		return
-	}
-	if j.Kind != "prune" || j.Status != store.JobDone {
-		writeError(w, http.StatusBadRequest, "il job non è un prune completato")
-		return
-	}
-	var res PruneResult
-	if err := json.Unmarshal(j.Result, &res); err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	byURI := map[string]PruneItem{}
-	for _, it := range res.Items {
-		byURI[it.URI] = it
 	}
 	var chosen []store.KnownTrack
 	var uris []string
@@ -190,4 +176,63 @@ func (s *Server) pruneRemove(w http.ResponseWriter, r *http.Request, uid int64) 
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"removed": len(uris)})
+}
+
+// pruneItems carica il risultato del job prune indicato nel path, indicizzato
+// per URI. Se il job non è un prune completato dell'utente scrive l'errore.
+func (s *Server) pruneItems(w http.ResponseWriter, r *http.Request, uid int64) (map[string]PruneItem, bool) {
+	j, err := s.DB.Job(r.Context(), uid, r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return nil, false
+	}
+	if j.Kind != "prune" || j.Status != store.JobDone {
+		writeError(w, http.StatusBadRequest, "il job non è un prune completato")
+		return nil, false
+	}
+	var res PruneResult
+	if err := json.Unmarshal(j.Result, &res); err != nil {
+		s.fail(w, r, err)
+		return nil, false
+	}
+	byURI := make(map[string]PruneItem, len(res.Items))
+	for _, it := range res.Items {
+		byURI[it.URI] = it
+	}
+	return byURI, true
+}
+
+type keepReq struct {
+	URI string `json:"uri"`
+}
+
+// pruneKeep segna (POST) o toglie (DELETE) un brano proposto da un job prune
+// come "da tenere": i prune successivi non lo propongono più.
+func (s *Server) pruneKeep(w http.ResponseWriter, r *http.Request, uid int64) {
+	var req keepReq
+	if !readJSON(w, r, &req) {
+		return
+	}
+	byURI, ok := s.pruneItems(w, r, uid)
+	if !ok {
+		return
+	}
+	it, ok := byURI[req.URI]
+	if !ok {
+		writeError(w, http.StatusBadRequest, "brano non proposto da questo prune: "+req.URI)
+		return
+	}
+	st := s.DB.ForUser(r.Context(), uid)
+	keep := r.Method == http.MethodPost
+	var err error
+	if keep {
+		err = st.AddKept(store.KnownTrack{Key: it.Key, SpotifyID: it.SpotifyID, Artist: it.Artist, Title: it.Title})
+	} else {
+		err = st.RemoveKept(it.Key)
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"kept": keep})
 }

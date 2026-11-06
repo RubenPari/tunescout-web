@@ -129,4 +129,6 @@ export const api = {
     request<Playlist>('POST', '/api/playlists', { name, uris, description }),
   pruneRemove: (jobId: string, uris: string[]) =>
     request<{ removed: number }>('POST', `/api/jobs/${jobId}/remove`, { uris }),
+  pruneKeep: (jobId: string, uri: string, keep: boolean) =>
+    request<{ kept: boolean }>(keep ? 'POST' : 'DELETE', `/api/jobs/${jobId}/keep`, { uri }),
 }

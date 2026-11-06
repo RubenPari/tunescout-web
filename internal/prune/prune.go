@@ -9,6 +9,7 @@ package prune
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -94,6 +95,13 @@ func (p *Pipeline) Run(ctx context.Context, opt Options) ([]Result, Stats, error
 		now = p.Now
 	}
 	cand := Candidates(saved, top, snap.TopArtists, now().Add(-opt.MinAge))
+	kept, err := p.ST.Kept()
+	if err != nil {
+		return nil, stats, err
+	}
+	cand = slices.DeleteFunc(cand, func(s spotify.SavedTrack) bool {
+		return kept[s.Track.ID] || kept[norm.Key(s.Track.Artists[0].Name, s.Track.Name)]
+	})
 	stats.Candidates = len(cand)
 	if len(cand) == 0 {
 		return nil, stats, nil

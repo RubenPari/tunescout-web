@@ -195,6 +195,41 @@ func (s *Store) AddRemoved(tracks []KnownTrack) error {
 	return s.sendBatch(b)
 }
 
+// AddKept registra un brano che l'utente vuole tenere: prune non lo propone più.
+func (s *Store) AddKept(t KnownTrack) error {
+	_, err := s.pool.Exec(s.ctx, `INSERT INTO kept(user_id, key, spotify_id, artist, title) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (user_id, key) DO UPDATE SET spotify_id=excluded.spotify_id, kept_at=now()`,
+		s.uid, t.Key, t.SpotifyID, t.Artist, t.Title)
+	return err
+}
+
+// RemoveKept annulla AddKept: il brano torna un possibile candidato di prune.
+func (s *Store) RemoveKept(key string) error {
+	_, err := s.pool.Exec(s.ctx, `DELETE FROM kept WHERE user_id=$1 AND key=$2`, s.uid, key)
+	return err
+}
+
+// Kept restituisce l'insieme delle chiavi e degli id Spotify dei brani da tenere.
+func (s *Store) Kept() (map[string]bool, error) {
+	rows, err := s.pool.Query(s.ctx, `SELECT key, spotify_id FROM kept WHERE user_id=$1`, s.uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var k, id string
+		if err := rows.Scan(&k, &id); err != nil {
+			return nil, err
+		}
+		out[k] = true
+		if id != "" {
+			out[id] = true
+		}
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) KnownArtist(normName string) (bool, error) {
 	var ok bool
 	err := s.pool.QueryRow(s.ctx, `SELECT EXISTS(SELECT 1 FROM known_artists WHERE user_id=$1 AND norm=$2)`,

@@ -14,16 +14,20 @@ export default function Prune() {
   const [form, setForm] = useState<PruneParams>({ count: 20, minAgeDays: 90 })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [removed, setRemoved] = useState<Set<string>>(new Set())
+  const [kept, setKept] = useState<Set<string>>(new Set())
+  const [keeping, setKeeping] = useState<Set<string>>(new Set())
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<ApiError | null>(null)
 
   const result = job.job?.status === 'done' ? job.job.result : undefined
   const items = (result?.items ?? []).filter((i) => !removed.has(i.uri))
+  const removable = items.filter((i) => !kept.has(i.uri))
 
   const submit = () => {
     setSelected(new Set())
     setRemoved(new Set())
+    setKept(new Set())
     setActionError(null)
     void job.start(form)
   }
@@ -35,6 +39,36 @@ export default function Prune() {
       else n.add(uri)
       return n
     })
+
+  const toggleKeep = async (uri: string) => {
+    if (!job.job || keeping.has(uri)) return
+    const keep = !kept.has(uri)
+    setKeeping((k) => new Set(k).add(uri))
+    setActionError(null)
+    try {
+      await api.pruneKeep(job.job.id, uri, keep)
+      setKept((k) => {
+        const n = new Set(k)
+        if (keep) n.add(uri)
+        else n.delete(uri)
+        return n
+      })
+      if (keep)
+        setSelected((s) => {
+          const n = new Set(s)
+          n.delete(uri)
+          return n
+        })
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e : new ApiError(0, String(e)))
+    } finally {
+      setKeeping((k) => {
+        const n = new Set(k)
+        n.delete(uri)
+        return n
+      })
+    }
+  }
 
   const remove = async () => {
     if (!job.job) return
@@ -53,7 +87,7 @@ export default function Prune() {
     }
   }
 
-  const allSelected = items.length > 0 && items.every((i) => selected.has(i.uri))
+  const allSelected = removable.length > 0 && removable.every((i) => selected.has(i.uri))
 
   return (
     <div className="space-y-8">
@@ -64,7 +98,9 @@ export default function Prune() {
           salvato da un certo numero di giorni, non è tra i tuoi brani più ascoltati e nessuno dei suoi artisti è tra i
           50 che ascolti di più. Tra questi, Claude sceglie quelli più lontani dai tuoi gusti.
         </p>
-        <p className="mt-2 text-dim">Nulla viene rimosso senza la tua conferma.</p>
+        <p className="mt-2 text-dim">
+          Nulla viene rimosso senza la tua conferma. I brani che segni come da tenere non ti verranno più proposti.
+        </p>
       </header>
 
       <form
@@ -118,6 +154,11 @@ export default function Prune() {
               proporrà più.
             </div>
           )}
+          {kept.size > 0 && (
+            <div role="status" className="rounded-lg border-l-[3px] border-dial bg-dial-soft px-4 py-3 text-[15px]">
+              {kept.size === 1 ? '1 brano tenuto: non verrà più proposto.' : `${kept.size} brani tenuti: non verranno più proposti.`}
+            </div>
+          )}
           {items.length === 0 ? (
             removed.size === 0 && (
               <p className="max-w-[62ch] text-dim">
@@ -134,12 +175,13 @@ export default function Prune() {
                     type="checkbox"
                     className="h-4 w-4 accent-[#ef6b5b]"
                     checked={allSelected}
-                    onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((i) => i.uri)))}
+                    disabled={removable.length === 0}
+                    onChange={() => setSelected(allSelected ? new Set() : new Set(removable.map((i) => i.uri)))}
                   />
-                  Seleziona tutti ({items.length})
+                  Seleziona tutti ({removable.length})
                 </label>
                 <PlaylistButton
-                  uris={selected.size ? [...selected] : items.map((i) => i.uri)}
+                  uris={selected.size ? [...selected] : removable.map((i) => i.uri)}
                   defaultName="Da eliminare (tunescout)"
                   description="Brani da valutare per l'eliminazione, scelti da tunescout"
                   label={selected.size ? `Playlist di backup (${selected.size})` : 'Playlist di backup'}
@@ -158,15 +200,29 @@ export default function Prune() {
                     key={t.uri}
                     track={t}
                     selected={selected.has(t.uri)}
+                    dimmed={kept.has(t.uri)}
                     note={`Salvato il ${dateFmt.format(new Date(t.addedAt))}`}
                     leading={
                       <input
                         type="checkbox"
                         aria-label={`Seleziona ${t.title}`}
-                        className="mt-1 h-5 w-5 shrink-0 accent-[#ef6b5b]"
+                        className="mt-1 h-5 w-5 shrink-0 accent-[#ef6b5b] disabled:cursor-not-allowed"
                         checked={selected.has(t.uri)}
+                        disabled={kept.has(t.uri)}
                         onChange={() => toggle(t.uri)}
                       />
+                    }
+                    actions={
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-[#f2a93b]"
+                          checked={kept.has(t.uri)}
+                          disabled={keeping.has(t.uri)}
+                          onChange={() => void toggleKeep(t.uri)}
+                        />
+                        Da tenere: non propormelo più
+                      </label>
                     }
                   />
                 ))}

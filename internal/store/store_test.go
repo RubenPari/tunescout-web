@@ -43,6 +43,29 @@ func TestRemovedAreSeen(t *testing.T) {
 	}
 }
 
+func TestKept(t *testing.T) {
+	st := storetest.User(t, storetest.DB(t), "u1")
+	k := store.KnownTrack{Key: "ride|vapour trail", SpotifyID: "abc", Artist: "Ride", Title: "Vapour Trail"}
+	for range 2 { // idempotente
+		if err := st.AddKept(k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.ReplaceLibrary(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := st.Kept()
+	if err != nil || !kept[k.Key] || !kept[k.SpotifyID] || len(kept) != 2 {
+		t.Fatalf("Kept = %v, %v", kept, err)
+	}
+	if err := st.RemoveKept(k.Key); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := st.Kept(); len(kept) != 0 {
+		t.Errorf("Kept dopo RemoveKept = %v", kept)
+	}
+}
+
 func TestReplaceLibraryDedup(t *testing.T) {
 	st := storetest.User(t, storetest.DB(t), "u1")
 	tracks := []store.KnownTrack{

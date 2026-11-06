@@ -358,6 +358,42 @@ func TestPruneRemoveOnlyProposed(t *testing.T) {
 	}
 }
 
+func TestPruneKeepExcludesFromNextRun(t *testing.T) {
+	e := newEnv(t, 0)
+	c := e.login("alice")
+	run := func() (string, []api.PruneItem) {
+		t.Helper()
+		j, _ := c.runJob("prune", api.PruneParams{Count: 5, MinAgeDays: 30})
+		if j.Status != store.JobDone {
+			t.Fatalf("prune: %s %q", j.Status, j.Error)
+		}
+		var res api.PruneResult
+		_ = json.Unmarshal(j.Result, &res)
+		return j.ID, res.Items
+	}
+	id, items := run()
+	if len(items) != 1 {
+		t.Fatalf("prune items = %+v", items)
+	}
+	uri := items[0].URI
+	other := "spotify:track:" + id22("known1")
+	if code := c.do("POST", "/api/jobs/"+id+"/keep", map[string]any{"uri": other}, nil); code != 400 {
+		t.Errorf("keep di un brano non proposto: HTTP %d", code)
+	}
+	if code := c.do("POST", "/api/jobs/"+id+"/keep", map[string]any{"uri": uri}, nil); code != 200 {
+		t.Fatalf("keep: HTTP %d", code)
+	}
+	if _, items := run(); len(items) != 0 {
+		t.Errorf("il brano tenuto è stato riproposto: %+v", items)
+	}
+	if code := c.do("DELETE", "/api/jobs/"+id+"/keep", map[string]any{"uri": uri}, nil); code != 200 {
+		t.Fatalf("unkeep: HTTP %d", code)
+	}
+	if _, items := run(); len(items) != 1 || items[0].URI != uri {
+		t.Errorf("dopo l'annullamento il brano deve tornare candidato: %+v", items)
+	}
+}
+
 func TestUsersCannotAccessOthersJobs(t *testing.T) {
 	e := newEnv(t, 0)
 	alice, bob := e.login("alice"), e.login("bob")
@@ -373,6 +409,9 @@ func TestUsersCannotAccessOthersJobs(t *testing.T) {
 	}
 	if code := bob.do("POST", "/api/jobs/"+j.ID+"/remove", map[string]any{"uris": []string{res.Items[0].URI}}, nil); code != 404 {
 		t.Errorf("bob rimuove usando il job di alice: HTTP %d", code)
+	}
+	if code := bob.do("POST", "/api/jobs/"+j.ID+"/keep", map[string]any{"uri": res.Items[0].URI}, nil); code != 404 {
+		t.Errorf("bob tiene un brano usando il job di alice: HTTP %d", code)
 	}
 	if len(bob.sp.removed)+len(alice.sp.removed) != 0 {
 		t.Error("nessuna rimozione doveva avvenire")

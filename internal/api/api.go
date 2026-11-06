@@ -73,6 +73,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/feedback", s.user(s.feedback))
 	mux.HandleFunc("POST /api/playlists", s.user(s.createPlaylist))
 	mux.HandleFunc("POST /api/jobs/{id}/remove", s.user(s.pruneRemove))
+	mux.HandleFunc("POST /api/jobs/{id}/keep", s.user(s.pruneKeep))
+	mux.HandleFunc("DELETE /api/jobs/{id}/keep", s.user(s.pruneKeep))
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "endpoint inesistente")
