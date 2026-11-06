@@ -6,9 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -124,17 +122,3 @@ func spaHandler(static fs.FS) http.Handler {
 		files.ServeHTTP(w, r)
 	})
 }
-
-func intParam(r *http.Request, name string, def, lo, hi int) (int, bool) {
-	v := r.URL.Query().Get(name)
-	if v == "" {
-		return def, true
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < lo || n > hi {
-		return 0, false
-	}
-	return n, true
-}
-
-func urlQueryEscape(s string) string { return url.QueryEscape(s) }

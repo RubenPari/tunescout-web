@@ -48,19 +48,10 @@ type Pipeline struct {
 
 func (p *Pipeline) Run(ctx context.Context, opt Options) ([]store.Suggestion, Stats, error) {
 	var stats Stats
-	snap, err := profile.Load(p.ST)
+	profText, _, err := profile.Prompt(p.ST, true)
 	if err != nil {
 		return nil, stats, err
 	}
-	liked, err := p.ST.History(30, "like")
-	if err != nil {
-		return nil, stats, err
-	}
-	skipped, err := p.ST.History(30, "skip")
-	if err != nil {
-		return nil, stats, err
-	}
-	profText := snap.Render(liked, skipped)
 	if opt.MaxRounds <= 0 {
 		opt.MaxRounds = 2
 	}
@@ -164,17 +155,23 @@ func (p *Pipeline) verify(ctx context.Context, cand []llm.Suggestion) []*store.S
 			if t == nil {
 				return
 			}
-			out[i] = &store.Suggestion{
-				Key:       norm.Key(t.Artists[0].Name, t.Name),
-				SpotifyID: t.ID, URI: t.URI,
-				Artist: strings.Join(t.ArtistNames(), ", "),
-				Title:  t.Name, Album: t.Album.Name, Year: t.Year(), Image: t.Album.Cover(),
-				Reason: c.Reason, URL: t.URL(),
-			}
+			sg := SuggestionFrom(*t, c.Reason)
+			out[i] = &sg
 		}()
 	}
 	wg.Wait()
 	return out
+}
+
+// SuggestionFrom converte un brano Spotify (con almeno un artista) in un
+// suggerimento da mostrare e salvare.
+func SuggestionFrom(t spotify.Track, reason string) store.Suggestion {
+	return store.Suggestion{
+		Key: t.Key(), SpotifyID: t.ID, URI: t.URI,
+		Artist: strings.Join(t.ArtistNames(), ", "), Title: t.Name,
+		Album: t.Album.Name, Year: t.Year(), Image: t.Album.Cover(),
+		Reason: reason, URL: t.URL(),
+	}
 }
 
 func (p *Pipeline) find(ctx context.Context, c llm.Suggestion) (*spotify.Track, error) {

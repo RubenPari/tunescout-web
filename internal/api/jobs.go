@@ -11,7 +11,6 @@ import (
 
 	"github.com/rubenpari/tunescout-web/internal/discover"
 	"github.com/rubenpari/tunescout-web/internal/jobs"
-	"github.com/rubenpari/tunescout-web/internal/norm"
 	"github.com/rubenpari/tunescout-web/internal/profile"
 	"github.com/rubenpari/tunescout-web/internal/prune"
 	"github.com/rubenpari/tunescout-web/internal/store"
@@ -53,7 +52,7 @@ type SyncResult struct {
 }
 
 func (s *Server) startSync(w http.ResponseWriter, r *http.Request, uid int64) {
-	s.start(w, r, uid, "sync", struct{}{}, false, func(ctx context.Context, sp Spotify, st *store.Store, log func(string, ...any)) (any, error) {
+	s.start(w, r, uid, jobs.KindSync, struct{}{}, false, func(ctx context.Context, sp Spotify, st *store.Store, log func(string, ...any)) (any, error) {
 		if err := profile.Sync(ctx, sp, st, log); err != nil {
 			return nil, err
 		}
@@ -80,8 +79,7 @@ func (s *Server) startDiscover(w http.ResponseWriter, r *http.Request, uid int64
 	}
 	p.Genres = genres
 	switch {
-	case p.Count < 1 || p.Count > 50:
-		writeError(w, http.StatusBadRequest, "il numero di brani deve essere tra 1 e 50")
+	case !validCount(w, p.Count):
 		return
 	case len(p.Mood) > 200:
 		writeError(w, http.StatusBadRequest, "mood troppo lungo (max 200 caratteri)")
@@ -96,7 +94,7 @@ func (s *Server) startDiscover(w http.ResponseWriter, r *http.Request, uid int64
 			return
 		}
 	}
-	s.start(w, r, uid, "discover", p, true, func(ctx context.Context, sp Spotify, st *store.Store, log func(string, ...any)) (any, error) {
+	s.start(w, r, uid, jobs.KindDiscover, p, true, func(ctx context.Context, sp Spotify, st *store.Store, log func(string, ...any)) (any, error) {
 		if err := ensureSynced(ctx, sp, st, log); err != nil {
 			return nil, err
 		}
@@ -117,15 +115,14 @@ func (s *Server) startPrune(w http.ResponseWriter, r *http.Request, uid int64) {
 	if !readJSON(w, r, &p) {
 		return
 	}
-	if p.Count < 1 || p.Count > 50 {
-		writeError(w, http.StatusBadRequest, "il numero di brani deve essere tra 1 e 50")
+	if !validCount(w, p.Count) {
 		return
 	}
 	if p.MinAgeDays < 0 || p.MinAgeDays > 3650 {
 		writeError(w, http.StatusBadRequest, "l'età minima deve essere tra 0 e 3650 giorni")
 		return
 	}
-	s.start(w, r, uid, "prune", p, true, func(ctx context.Context, sp Spotify, st *store.Store, log func(string, ...any)) (any, error) {
+	s.start(w, r, uid, jobs.KindPrune, p, true, func(ctx context.Context, sp Spotify, st *store.Store, log func(string, ...any)) (any, error) {
 		if err := ensureSynced(ctx, sp, st, log); err != nil {
 			return nil, err
 		}
@@ -137,23 +134,22 @@ func (s *Server) startPrune(w http.ResponseWriter, r *http.Request, uid int64) {
 			return nil, err
 		}
 		log("%s", stats)
-		items := make([]PruneItem, 0, len(res))
-		for _, x := range res {
-			t := x.Track
-			if len(t.Artists) == 0 {
-				continue
-			}
-			items = append(items, PruneItem{
-				Suggestion: store.Suggestion{
-					Key: norm.Key(t.Artists[0].Name, t.Name), SpotifyID: t.ID, URI: t.URI,
-					Artist: strings.Join(t.ArtistNames(), ", "), Title: t.Name,
-					Album: t.Album.Name, Year: t.Year(), Reason: x.Reason, URL: t.URL(), Image: t.Album.Cover(),
-				},
-				AddedAt: x.AddedAt,
-			})
+		// prune.Candidates scarta già i brani senza artisti.
+		items := make([]PruneItem, len(res))
+		for i, x := range res {
+			items[i] = PruneItem{Suggestion: discover.SuggestionFrom(x.Track, x.Reason), AddedAt: x.AddedAt}
 		}
 		return PruneResult{Items: items, Stats: stats}, nil
 	})
+}
+
+// validCount controlla il numero di brani richiesto; se non è valido scrive l'errore.
+func validCount(w http.ResponseWriter, n int) bool {
+	if n < 1 || n > 50 {
+		writeError(w, http.StatusBadRequest, "il numero di brani deve essere tra 1 e 50")
+		return false
+	}
+	return true
 }
 
 // ensureSynced aggiorna la cache della libreria se è più vecchia di 24 ore.
@@ -245,13 +241,13 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request, uid int64) {
 			return
 		}
 		sse(w)
-		sendEvent(w, jobs.Event{Type: "done", Job: j})
+		sendEvent(w, jobs.Event{Type: jobs.EventDone, Job: j})
 		return
 	}
 	defer cancel()
 	sse(w)
 	for _, m := range past {
-		sendEvent(w, jobs.Event{Type: "log", Message: m})
+		sendEvent(w, jobs.Event{Type: jobs.EventLog, Message: m})
 	}
 	keepAlive := time.NewTicker(15 * time.Second)
 	defer keepAlive.Stop()
@@ -266,12 +262,12 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request, uid int64) {
 			if !ok {
 				// Canale chiuso senza "done" (abbonato lento): rileggi lo stato dal DB.
 				if j, err := s.DB.Job(context.WithoutCancel(ctx), uid, id); err == nil && j.Status != store.JobRunning {
-					sendEvent(w, jobs.Event{Type: "done", Job: j})
+					sendEvent(w, jobs.Event{Type: jobs.EventDone, Job: j})
 				}
 				return
 			}
 			sendEvent(w, e)
-			if e.Type == "done" {
+			if e.Type == jobs.EventDone {
 				return
 			}
 		}

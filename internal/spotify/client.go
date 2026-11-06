@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rubenpari/tunescout-web/internal/norm"
 )
 
 const apiBase = "https://api.spotify.com/v1"
@@ -146,6 +148,10 @@ type Track struct {
 }
 
 func (t Track) URL() string { return t.ExternalURLs["spotify"] }
+
+// Key è la chiave normalizzata del brano (primo artista + titolo), vedi norm.Key.
+// Il brano deve avere almeno un artista.
+func (t Track) Key() string { return norm.Key(t.Artists[0].Name, t.Name) }
 
 func (t Track) ArtistNames() []string {
 	out := make([]string, len(t.Artists))

@@ -24,8 +24,21 @@ const (
 	keepLive   = 5 * time.Minute // per quanto restano in memoria i log di un job finito
 )
 
+// Tipi di job.
+const (
+	KindSync     = "sync"
+	KindDiscover = "discover"
+	KindPrune    = "prune"
+)
+
+// Tipi di evento trasmessi agli abbonati.
+const (
+	EventLog  = "log"  // riga di progresso
+	EventDone = "done" // job terminato, con lo stato finale
+)
+
 type Event struct {
-	Type    string     `json:"type"` // "log" o "done"
+	Type    string     `json:"type"` // EventLog o EventDone
 	Message string     `json:"message,omitempty"`
 	Job     *store.Job `json:"job,omitempty"`
 }
@@ -103,7 +116,7 @@ func (r *Runner) Start(userID int64, kind string, params any, fn Func, onFail fu
 
 func (r *Runner) run(j *store.Job, l *live, fn Func, onFail func()) {
 	defer r.wg.Done()
-	logf := func(format string, a ...any) { l.publish(Event{Type: "log", Message: fmt.Sprintf(format, a...)}) }
+	logf := func(format string, a ...any) { l.publish(Event{Type: EventLog, Message: fmt.Sprintf(format, a...)}) }
 
 	select {
 	case r.sem <- struct{}{}:
@@ -178,7 +191,7 @@ func (r *Runner) Active(userID int64) (string, bool) {
 
 // Subscribe restituisce i log già emessi e un canale per i successivi.
 // ok è false se il job non è più in memoria (usare lo stato salvato su DB).
-// Il canale viene chiuso dopo l'evento "done".
+// Il canale viene chiuso dopo l'evento EventDone.
 func (r *Runner) Subscribe(userID int64, jobID string) (past []string, ch <-chan Event, cancel func(), ok bool) {
 	r.mu.Lock()
 	l, ok := r.jobs[jobID]
@@ -191,7 +204,7 @@ func (r *Runner) Subscribe(userID int64, jobID string) (past []string, ch <-chan
 	defer l.mu.Unlock()
 	past = append([]string(nil), l.logs...)
 	if l.final != nil {
-		c <- Event{Type: "done", Job: l.final}
+		c <- Event{Type: EventDone, Job: l.final}
 		close(c)
 		return past, c, func() {}, true
 	}
@@ -224,7 +237,7 @@ func (l *live) finish(j *store.Job) {
 	l.final = j
 	for c := range l.subs {
 		select {
-		case c <- Event{Type: "done", Job: j}:
+		case c <- Event{Type: EventDone, Job: j}:
 		default:
 		}
 		close(c)

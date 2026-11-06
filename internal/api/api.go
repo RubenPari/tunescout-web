@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -127,7 +129,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) { s.Auth.StartLog
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.Auth.FinishLogin(w, r); err != nil {
 		slog.Warn("login fallito", "err", err)
-		http.Redirect(w, r, "/login?error="+urlQueryEscape(loginErrorMessage(err)), http.StatusFound)
+		http.Redirect(w, r, "/login?error="+url.QueryEscape(loginErrorMessage(err)), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)
@@ -167,6 +169,13 @@ type usageInfo struct {
 	Limit int `json:"limit"` // 0 = illimitato
 }
 
+type meResponse struct {
+	User      *store.User   `json:"user"`
+	Library   libraryStatus `json:"library"`
+	Usage     usageInfo     `json:"usage"`
+	ActiveJob *store.Job    `json:"activeJob,omitempty"`
+}
+
 func (s *Server) me(w http.ResponseWriter, r *http.Request, uid int64) {
 	ctx := r.Context()
 	u, err := s.DB.User(ctx, uid)
@@ -191,12 +200,10 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request, uid int64) {
 		s.fail(w, r, err)
 		return
 	}
-	resp := map[string]any{
-		"user": u, "library": lib, "usage": usageInfo{Today: runs, Limit: s.DailyRunLimit},
-	}
+	resp := meResponse{User: u, Library: lib, Usage: usageInfo{Today: runs, Limit: s.DailyRunLimit}}
 	if id, ok := s.Jobs.Active(uid); ok {
 		if j, err := s.DB.Job(ctx, uid, id); err == nil {
-			resp["activeJob"] = j
+			resp.ActiveJob = j
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -217,7 +224,7 @@ func (s *Server) deleteMe(w http.ResponseWriter, r *http.Request, uid int64) {
 
 func (s *Server) history(w http.ResponseWriter, r *http.Request, uid int64) {
 	fb := r.URL.Query().Get("feedback")
-	if fb != "" && fb != "like" && fb != "skip" {
+	if fb != "" && !store.ValidFeedback(fb) {
 		writeError(w, http.StatusBadRequest, "feedback deve essere like o skip")
 		return
 	}
@@ -306,6 +313,19 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// intParam legge un parametro intero opzionale della query compreso tra lo e hi.
+func intParam(r *http.Request, name string, def, lo, hi int) (int, bool) {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return def, true
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < lo || n > hi {
+		return 0, false
+	}
+	return n, true
 }
 
 func nonNil[T any](s []T) []T {

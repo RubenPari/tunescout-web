@@ -66,11 +66,7 @@ type Pipeline struct {
 
 func (p *Pipeline) Run(ctx context.Context, opt Options) ([]Result, Stats, error) {
 	var stats Stats
-	snap, err := profile.Load(p.ST)
-	if err != nil {
-		return nil, stats, err
-	}
-	liked, err := p.ST.History(30, "like")
+	profText, snap, err := profile.Prompt(p.ST, false)
 	if err != nil {
 		return nil, stats, err
 	}
@@ -100,7 +96,7 @@ func (p *Pipeline) Run(ctx context.Context, opt Options) ([]Result, Stats, error
 		return nil, stats, err
 	}
 	cand = slices.DeleteFunc(cand, func(s spotify.SavedTrack) bool {
-		return kept[s.Track.ID] || kept[norm.Key(s.Track.Artists[0].Name, s.Track.Name)]
+		return kept[s.Track.ID] || kept[s.Track.Key()]
 	})
 	stats.Candidates = len(cand)
 	if len(cand) == 0 {
@@ -110,7 +106,7 @@ func (p *Pipeline) Run(ctx context.Context, opt Options) ([]Result, Stats, error
 		cand = cand[:maxCandidates]
 	}
 
-	req := llm.PruneRequest{Profile: snap.Render(liked, nil), Count: opt.Count}
+	req := llm.PruneRequest{Profile: profText, Count: opt.Count}
 	for _, c := range cand {
 		req.Candidates = append(req.Candidates, llm.PruneCandidate{
 			Artist: strings.Join(c.Track.ArtistNames(), ", "), Title: c.Track.Name, Year: c.Track.Year(),
@@ -140,7 +136,7 @@ func Candidates(saved []spotify.SavedTrack, top []spotify.Track, topArtists []pr
 	for _, t := range top {
 		topIDs[t.ID] = true
 		if len(t.Artists) > 0 {
-			topIDs[norm.Key(t.Artists[0].Name, t.Name)] = true
+			topIDs[t.Key()] = true
 		}
 	}
 	protected := map[string]bool{}
@@ -163,7 +159,7 @@ func Candidates(saved []spotify.SavedTrack, top []spotify.Track, topArtists []pr
 		if t.ID == "" || t.IsLocal || len(t.Artists) == 0 || !s.AddedAt.Before(before) {
 			continue
 		}
-		if topIDs[t.ID] || topIDs[norm.Key(t.Artists[0].Name, t.Name)] {
+		if topIDs[t.ID] || topIDs[t.Key()] {
 			continue
 		}
 		isProtected := false

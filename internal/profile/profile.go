@@ -56,7 +56,7 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 			return
 		}
 		known = append(known, store.KnownTrack{
-			Key: norm.Key(t.Artists[0].Name, t.Name), SpotifyID: t.ID,
+			Key: t.Key(), SpotifyID: t.ID,
 			Artist: t.Artists[0].Name, Title: t.Name, Source: source,
 		})
 		for _, a := range t.Artists {
@@ -76,7 +76,7 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 	savedTracks := make([]spotify.Track, len(saved))
 	for i, s := range saved {
 		savedTracks[i] = s.Track
-		add(s.Track, "saved")
+		add(s.Track, store.SourceSaved)
 	}
 	log("  %d brani salvati", len(saved))
 
@@ -109,7 +109,7 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 			return fmt.Errorf("top brani (%s): %w", tr, err)
 		}
 		for _, t := range tracks {
-			add(t, "top")
+			add(t, store.SourceTop)
 		}
 		switch tr {
 		case "short_term":
@@ -142,7 +142,7 @@ func Sync(ctx context.Context, sp Source, st *store.Store, log func(string, ...a
 			return fmt.Errorf("playlist %q: %w", p.Name, err)
 		}
 		for _, t := range tracks {
-			add(t, "playlist")
+			add(t, store.SourcePlaylist)
 		}
 		nPl++
 	}
@@ -193,6 +193,29 @@ func Load(st *store.Store) (*Snapshot, error) {
 		return nil, errors.New("nessun profilo: sincronizza prima la libreria")
 	}
 	return &s, nil
+}
+
+// historyInPrompt è quanti suggerimenti apprezzati/scartati includere nel profilo.
+const historyInPrompt = 30
+
+// Prompt carica il profilo e lo rende come testo per il modello, insieme agli
+// ultimi suggerimenti apprezzati (e, se withSkipped, scartati).
+func Prompt(st *store.Store, withSkipped bool) (string, *Snapshot, error) {
+	snap, err := Load(st)
+	if err != nil {
+		return "", nil, err
+	}
+	liked, err := st.History(historyInPrompt, store.FeedbackLike)
+	if err != nil {
+		return "", nil, err
+	}
+	var skipped []store.Suggestion
+	if withSkipped {
+		if skipped, err = st.History(historyInPrompt, store.FeedbackSkip); err != nil {
+			return "", nil, err
+		}
+	}
+	return snap.Render(liked, skipped), snap, nil
 }
 
 // Render produce la descrizione testuale del profilo per il prompt.

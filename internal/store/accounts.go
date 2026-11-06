@@ -30,10 +30,10 @@ func (d *DB) User(ctx context.Context, id int64) (*User, error) {
 	var u User
 	err := d.pool.QueryRow(ctx, `SELECT id, spotify_id, display_name, created_at FROM users WHERE id=$1`, id).
 		Scan(&u.ID, &u.SpotifyID, &u.DisplayName, &u.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
+	if err != nil {
+		return nil, notFound(err)
 	}
-	return &u, err
+	return &u, nil
 }
 
 // DeleteUser cancella l'utente e, a cascata, tutti i suoi dati.
@@ -53,10 +53,7 @@ func (d *DB) SaveToken(ctx context.Context, userID int64, enc []byte) error {
 func (d *DB) LoadToken(ctx context.Context, userID int64) ([]byte, error) {
 	var b []byte
 	err := d.pool.QueryRow(ctx, `SELECT token FROM spotify_tokens WHERE user_id=$1`, userID).Scan(&b)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return b, err
+	return b, notFound(err)
 }
 
 // --- sessioni ---
@@ -71,10 +68,7 @@ func (d *DB) CreateSession(ctx context.Context, idHash []byte, userID int64, exp
 func (d *DB) SessionUser(ctx context.Context, idHash []byte) (int64, error) {
 	var uid int64
 	err := d.pool.QueryRow(ctx, `SELECT user_id FROM sessions WHERE id_hash=$1 AND expires_at > now()`, idHash).Scan(&uid)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNotFound
-	}
-	return uid, err
+	return uid, notFound(err)
 }
 
 func (d *DB) DeleteSession(ctx context.Context, idHash []byte) error {
@@ -124,20 +118,23 @@ func (d *DB) Job(ctx context.Context, userID int64, id string) (*Job, error) {
 	err := d.pool.QueryRow(ctx, `SELECT id, user_id, kind, status, params, result, error, created_at, finished_at
 		FROM jobs WHERE id=$1 AND user_id=$2`, id, userID).
 		Scan(&j.ID, &j.UserID, &j.Kind, &j.Status, &j.Params, &j.Result, &j.Error, &j.CreatedAt, &j.FinishedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
+	if err != nil {
+		return nil, notFound(err)
 	}
-	return &j, err
+	return &j, nil
 }
 
 // FailStaleJobs marca come falliti i job rimasti "running" (es. dopo un riavvio).
 func (d *DB) FailStaleJobs(ctx context.Context) error {
-	_, err := d.pool.Exec(ctx, `UPDATE jobs SET status='failed', error='interrotto dal riavvio del server',
-		finished_at=now() WHERE status='running'`)
+	_, err := d.pool.Exec(ctx, `UPDATE jobs SET status=$1, error='interrotto dal riavvio del server',
+		finished_at=now() WHERE status=$2`, JobFailed, JobRunning)
 	return err
 }
 
 // --- limiti di utilizzo ---
+
+// todayUTC è la data odierna (UTC) a cui si riferisce il limite giornaliero.
+const todayUTC = "(now() AT TIME ZONE 'UTC')::date"
 
 // TakeRun consuma un'esecuzione dal limite giornaliero (UTC) dell'utente.
 // Restituisce false se il limite è già stato raggiunto.
@@ -146,7 +143,7 @@ func (d *DB) TakeRun(ctx context.Context, userID int64, limit int) (bool, error)
 		return true, nil
 	}
 	var runs int
-	err := d.pool.QueryRow(ctx, `INSERT INTO usage(user_id, day, runs) VALUES ($1, (now() AT TIME ZONE 'UTC')::date, 1)
+	err := d.pool.QueryRow(ctx, `INSERT INTO usage(user_id, day, runs) VALUES ($1, `+todayUTC+`, 1)
 		ON CONFLICT (user_id, day) DO UPDATE SET runs = usage.runs + 1 WHERE usage.runs < $2
 		RETURNING runs`, userID, limit).Scan(&runs)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -158,7 +155,7 @@ func (d *DB) TakeRun(ctx context.Context, userID int64, limit int) (bool, error)
 // RefundRun restituisce un'esecuzione (es. job fallito prima di chiamare il modello).
 func (d *DB) RefundRun(ctx context.Context, userID int64) error {
 	_, err := d.pool.Exec(ctx, `UPDATE usage SET runs = GREATEST(runs - 1, 0)
-		WHERE user_id=$1 AND day=(now() AT TIME ZONE 'UTC')::date`, userID)
+		WHERE user_id=$1 AND day=`+todayUTC, userID)
 	return err
 }
 
@@ -166,6 +163,14 @@ func (d *DB) RefundRun(ctx context.Context, userID int64) error {
 func (d *DB) RunsToday(ctx context.Context, userID int64) (int, error) {
 	var n int
 	err := d.pool.QueryRow(ctx, `SELECT COALESCE((SELECT runs FROM usage
-		WHERE user_id=$1 AND day=(now() AT TIME ZONE 'UTC')::date), 0)`, userID).Scan(&n)
+		WHERE user_id=$1 AND day=`+todayUTC+`), 0)`, userID).Scan(&n)
 	return n, err
+}
+
+// notFound traduce pgx.ErrNoRows in ErrNotFound; gli altri errori passano invariati.
+func notFound(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
 }

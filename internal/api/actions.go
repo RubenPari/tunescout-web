@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rubenpari/tunescout-web/internal/jobs"
 	"github.com/rubenpari/tunescout-web/internal/store"
 )
 
@@ -26,7 +27,7 @@ func (s *Server) feedback(w http.ResponseWriter, r *http.Request, uid int64) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if req.Feedback != "like" && req.Feedback != "skip" {
+	if !store.ValidFeedback(req.Feedback) {
 		writeError(w, http.StatusBadRequest, "feedback deve essere like o skip")
 		return
 	}
@@ -49,7 +50,7 @@ func (s *Server) feedback(w http.ResponseWriter, r *http.Request, uid int64) {
 		}
 		list = append(list, sg)
 	}
-	if req.Feedback == "like" {
+	if req.Feedback == store.FeedbackLike {
 		var uris []string
 		for _, sg := range list {
 			if sg.URI != "" {
@@ -156,7 +157,7 @@ func (s *Server) pruneRemove(w http.ResponseWriter, r *http.Request, uid int64) 
 			writeError(w, http.StatusBadRequest, "brano non proposto da questo prune: "+u)
 			return
 		}
-		chosen = append(chosen, store.KnownTrack{Key: it.Key, SpotifyID: it.SpotifyID, Artist: it.Artist, Title: it.Title, Source: "removed"})
+		chosen = append(chosen, it.knownTrack(store.SourceRemoved))
 		uris = append(uris, u)
 	}
 	sp, err := s.SpotifyFor(ctx, uid)
@@ -186,7 +187,7 @@ func (s *Server) pruneItems(w http.ResponseWriter, r *http.Request, uid int64) (
 		s.fail(w, r, err)
 		return nil, false
 	}
-	if j.Kind != "prune" || j.Status != store.JobDone {
+	if j.Kind != jobs.KindPrune || j.Status != store.JobDone {
 		writeError(w, http.StatusBadRequest, "il job non è un prune completato")
 		return nil, false
 	}
@@ -200,6 +201,11 @@ func (s *Server) pruneItems(w http.ResponseWriter, r *http.Request, uid int64) (
 		byURI[it.URI] = it
 	}
 	return byURI, true
+}
+
+// knownTrack converte un brano proposto da prune nel formato delle tabelle removed/kept.
+func (it PruneItem) knownTrack(source string) store.KnownTrack {
+	return store.KnownTrack{Key: it.Key, SpotifyID: it.SpotifyID, Artist: it.Artist, Title: it.Title, Source: source}
 }
 
 type keepReq struct {
@@ -226,7 +232,7 @@ func (s *Server) pruneKeep(w http.ResponseWriter, r *http.Request, uid int64) {
 	keep := r.Method == http.MethodPost
 	var err error
 	if keep {
-		err = st.AddKept(store.KnownTrack{Key: it.Key, SpotifyID: it.SpotifyID, Artist: it.Artist, Title: it.Title})
+		err = st.AddKept(it.knownTrack(""))
 	} else {
 		err = st.RemoveKept(it.Key)
 	}

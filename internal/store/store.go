@@ -99,6 +99,14 @@ type KnownTrack struct {
 	Key, SpotifyID, Artist, Title, Source string
 }
 
+// Provenienza di un KnownTrack.
+const (
+	SourceSaved    = "saved"
+	SourceTop      = "top"
+	SourcePlaylist = "playlist"
+	SourceRemoved  = "removed"
+)
+
 // ReplaceLibrary sostituisce atomicamente brani e artisti noti.
 func (s *Store) ReplaceLibrary(tracks []KnownTrack, artists map[string]string) error {
 	return pgx.BeginFunc(s.ctx, s.pool, func(tx pgx.Tx) error {
@@ -184,24 +192,28 @@ func (s *Store) Seen(key, spotifyID string) (bool, error) {
 	return seen, err
 }
 
-// AddRemoved registra i brani rimossi dalla libreria, così discover non li ripropone.
-func (s *Store) AddRemoved(tracks []KnownTrack) error {
+// Upsert nelle tabelle gemelle removed e kept (stesse colonne, timestamp diverso).
+const (
+	upsertRemoved = `INSERT INTO removed(user_id, key, spotify_id, artist, title) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (user_id, key) DO UPDATE SET spotify_id=excluded.spotify_id, removed_at=now()`
+	upsertKept = `INSERT INTO kept(user_id, key, spotify_id, artist, title) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (user_id, key) DO UPDATE SET spotify_id=excluded.spotify_id, kept_at=now()`
+)
+
+// upsertTracks esegue query (upsertRemoved o upsertKept) per ogni brano.
+func (s *Store) upsertTracks(query string, tracks []KnownTrack) error {
 	b := &pgx.Batch{}
 	for _, t := range tracks {
-		b.Queue(`INSERT INTO removed(user_id, key, spotify_id, artist, title) VALUES ($1,$2,$3,$4,$5)
-			ON CONFLICT (user_id, key) DO UPDATE SET spotify_id=excluded.spotify_id, removed_at=now()`,
-			s.uid, t.Key, t.SpotifyID, t.Artist, t.Title)
+		b.Queue(query, s.uid, t.Key, t.SpotifyID, t.Artist, t.Title)
 	}
 	return s.sendBatch(b)
 }
 
+// AddRemoved registra i brani rimossi dalla libreria, così discover non li ripropone.
+func (s *Store) AddRemoved(tracks []KnownTrack) error { return s.upsertTracks(upsertRemoved, tracks) }
+
 // AddKept registra un brano che l'utente vuole tenere: prune non lo propone più.
-func (s *Store) AddKept(t KnownTrack) error {
-	_, err := s.pool.Exec(s.ctx, `INSERT INTO kept(user_id, key, spotify_id, artist, title) VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (user_id, key) DO UPDATE SET spotify_id=excluded.spotify_id, kept_at=now()`,
-		s.uid, t.Key, t.SpotifyID, t.Artist, t.Title)
-	return err
-}
+func (s *Store) AddKept(t KnownTrack) error { return s.upsertTracks(upsertKept, []KnownTrack{t}) }
 
 // RemoveKept annulla AddKept: il brano torna un possibile candidato di prune.
 func (s *Store) RemoveKept(key string) error {
@@ -249,8 +261,17 @@ type Suggestion struct {
 	URL       string    `json:"url"`
 	Image     string    `json:"image"`
 	CreatedAt time.Time `json:"createdAt"`
-	Feedback  string    `json:"feedback"` // "", "like", "skip"
+	Feedback  string    `json:"feedback"` // "", FeedbackLike o FeedbackSkip
 }
+
+// Feedback dell'utente su un suggerimento.
+const (
+	FeedbackLike = "like"
+	FeedbackSkip = "skip"
+)
+
+// ValidFeedback indica se fb è un feedback accettato (like o skip).
+func ValidFeedback(fb string) bool { return fb == FeedbackLike || fb == FeedbackSkip }
 
 func (s *Store) AddSuggestions(list []Suggestion) error {
 	b := &pgx.Batch{}
